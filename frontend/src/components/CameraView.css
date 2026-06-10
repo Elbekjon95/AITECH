@@ -1,0 +1,271 @@
+/* ═══════════════════════════════════════════════════
+   CameraView.css — Kamera va Yuz Aniqlash Stili
+   ═══════════════════════════════════════════════════ */
+
+.camera-view {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  height: 100%;
+}
+
+/* ─── Sarlavha ─────────────────────────────────────── */
+.camera-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0.25rem;
+}
+
+.camera-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-heading);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--clr-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+}
+
+.camera-badges {
+  display: flex;
+  gap: 0.4rem;
+}
+
+/* ─── Video oyna ───────────────────────────────────── */
+.camera-viewport {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: linear-gradient(145deg, #0a1628, #050b1a);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--clr-border);
+  overflow: hidden;
+}
+
+.camera-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1); /* Mirror effekt */
+  border-radius: var(--radius-xl);
+}
+
+.detection-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: scaleX(-1); /* Mirror effekt (video bilan mos) */
+  border-radius: var(--radius-xl);
+  pointer-events: none;
+}
+
+/* ─── Overlay ekranlar ─────────────────────────────── */
+.camera-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  z-index: 10;
+  border-radius: var(--radius-xl);
+}
+
+.loading-overlay {
+  background: linear-gradient(145deg, rgba(10, 22, 40, 0.95), rgba(5, 11, 26, 0.98));
+}
+
+.camera-off-overlay {
+  background: linear-gradient(145deg, rgba(10, 22, 40, 0.9), rgba(5, 11, 26, 0.95));
+}
+
+.error-overlay {
+  background: linear-gradient(145deg, rgba(30, 10, 20, 0.95), rgba(10, 5, 15, 0.98));
+}
+
+/* ─── Yuklash spinner ──────────────────────────────── */
+.loading-spinner {
+  width: 48px;
+  height: 48px;
+  border: 3px solid rgba(59, 130, 246, 0.15);
+  border-top-color: var(--clr-accent-blue);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+.loading-text {
+  font-size: 0.8125rem;
+  color: var(--clr-text-secondary);
+  text-align: center;
+  padding: 0 1rem;
+  max-width: 220px;
+  animation: fadeInUp 0.4s ease;
+}
+
+/* ─── Kamera o'chirilgan ───────────────────────────── */
+.camera-off-icon {
+  font-size: 3rem;
+  opacity: 0.4;
+}
+
+.camera-off-overlay p {
+  color: var(--clr-text-muted);
+  font-size: 0.875rem;
+}
+
+/* ─── Xato ─────────────────────────────────────────── */
+.error-icon {
+  font-size: 2.5rem;
+}
+
+.error-text {
+  font-size: 0.8125rem;
+  color: #fb7185;
+  text-align: center;
+  max-width: 240px;
+  padding: 0 1rem;
+}
+
+/* ─── Yuz aniqlanganda glow ────────────────────────── */
+.face-detected-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-xl);
+  border: 2px solid rgba(16, 185, 129, 0.5);
+  box-shadow: inset 0 0 30px rgba(16, 185, 129, 0.1), 0 0 30px rgba(16, 185, 129, 0.15);
+  pointer-events: none;
+  animation: fadeInScale 0.3s ease;
+  z-index: 5;
+}
+
+/* ─── Burchak dekorlar ─────────────────────────────── */
+.viewport-corner {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border-color: rgba(59, 130, 246, 0.5);
+  border-style: solid;
+  z-index: 6;
+  pointer-events: none;
+}
+
+.corner-tl { top: 12px;    left: 12px;    border-width: 2px 0 0 2px;  border-radius: 4px 0 0 0; }
+.corner-tr { top: 12px;    right: 12px;   border-width: 2px 2px 0 0;  border-radius: 0 4px 0 0; }
+.corner-bl { bottom: 12px; left: 12px;    border-width: 0 0 2px 2px;  border-radius: 0 0 0 4px; }
+.corner-br { bottom: 12px; right: 12px;   border-width: 0 2px 2px 0;  border-radius: 0 0 4px 0; }
+
+/* ─── HUD (Heads-Up Display) ───────────────────────── */
+.detection-hud {
+  position: absolute;
+  bottom: 14px;
+  right: 14px;
+  display: flex;
+  gap: 0.5rem;
+  z-index: 8;
+}
+
+.hud-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.25rem 0.5rem;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 6px;
+  backdrop-filter: blur(8px);
+  min-width: 44px;
+}
+
+.hud-label {
+  font-size: 0.55rem;
+  font-weight: 700;
+  color: var(--clr-text-muted);
+  letter-spacing: 0.08em;
+  line-height: 1;
+}
+
+.hud-value {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--clr-accent-cyan);
+  line-height: 1.2;
+  font-family: var(--font-heading);
+}
+
+/* ─── Alert banneri ────────────────────────────────── */
+.detection-alert {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.75rem 1.25rem;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  border-radius: var(--radius-lg);
+  transform: translateY(-8px);
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  backdrop-filter: blur(10px);
+}
+
+.detection-alert.show {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.alert-icon { font-size: 1.25rem; }
+
+.alert-text {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #34d399;
+}
+
+/* ─── Holat paneli ─────────────────────────────────── */
+.camera-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.25rem 0;
+}
+
+.presence-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  padding: 0.3125rem 0.75rem;
+  border-radius: var(--radius-full);
+  transition: all 0.3s ease;
+}
+
+.presence-indicator.present {
+  background: rgba(16, 185, 129, 0.12);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.presence-indicator.absent {
+  background: rgba(71, 85, 105, 0.15);
+  color: var(--clr-text-muted);
+  border: 1px solid rgba(71, 85, 105, 0.2);
+}
+
+.btn-sm {
+  padding: 0.4rem 0.875rem;
+  font-size: 0.8125rem;
+}
