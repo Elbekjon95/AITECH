@@ -446,8 +446,243 @@
   animation: spin 0.7s linear infinite;
 }
 
+/* ─── Header tugmalar ──────────────────────────────── */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.icon-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.55);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  transition: all 0.2s;
+}
+
+.icon-btn:hover {
+  background: rgba(139,92,246,0.15);
+  border-color: rgba(139,92,246,0.35);
+  color: #a78bfa;
+}
+
+.icon-btn.active {
+  background: rgba(16,185,129,0.12);
+  border-color: rgba(16,185,129,0.35);
+  color: #10b981;
+}
+
+.quiz-trigger {
+  background: rgba(245,158,11,0.1);
+  border-color: rgba(245,158,11,0.25);
+  color: #f59e0b;
+  animation: pulseYellow 2s ease-in-out infinite;
+}
+
+@keyframes pulseYellow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0.3); }
+  50%       { box-shadow: 0 0 0 6px rgba(245,158,11,0); }
+}
+
+/* ─── Faol mavzu belgisi ────────────────────────────── */
+.active-topic-badge {
+  color: #a78bfa;
+  font-weight: 600;
+}
+
+/* ─── O'quvchi ma'lumot paneli ─────────────────────── */
+.student-info-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.85rem;
+  background: rgba(139,92,246,0.07);
+  border: 1px solid rgba(139,92,246,0.2);
+  border-radius: 10px;
+  margin-bottom: 0.25rem;
+  animation: fadeInUp 0.3s ease;
+}
+
+.student-mini-photo {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1.5px solid rgba(139,92,246,0.5);
+}
+
+.student-mini-avatar {
+  font-size: 1.1rem;
+}
+
+.student-mini-name {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: rgba(255,255,255,0.85);
+}
+
+.student-mini-label {
+  font-size: 0.75rem;
+  color: rgba(255,255,255,0.4);
+}
+
+/* ─── Mavzular paneli ──────────────────────────────── */
+.topics-panel {
+  background: rgba(139,92,246,0.06);
+  border: 1px solid rgba(139,92,246,0.2);
+  border-radius: 14px;
+  padding: 0.85rem;
+  margin-bottom: 0.5rem;
+  animation: fadeInUp 0.3s ease;
+}
+
+.topics-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: rgba(255,255,255,0.55);
+  margin-bottom: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.topics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.topics-grid::-webkit-scrollbar { width: 4px; }
+.topics-grid::-webkit-scrollbar-thumb { background: rgba(139,92,246,0.3); border-radius: 2px; }
+
+.topic-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.6rem;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 8px;
+  color: rgba(255,255,255,0.65);
+  font-size: 0.72rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+  line-height: 1.3;
+}
+
+.topic-btn:hover:not(:disabled) {
+  background: rgba(139,92,246,0.12);
+  border-color: rgba(139,92,246,0.35);
+  color: #fff;
+}
+
+.topic-btn.active {
+  background: rgba(139,92,246,0.2);
+  border-color: #8b5cf6;
+  color: #a78bfa;
+  box-shadow: 0 0 0 1px rgba(139,92,246,0.2);
+}
+
+.topic-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.topic-emoji { font-size: 0.85rem; flex-shrink: 0; }
+.topic-label { line-height: 1.3; }
+
+/* ─── Mikrofon tugmasi ──────────────────────────────── */
+.mic-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-lg);
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+
+.mic-btn:hover {
+  background: rgba(139,92,246,0.15);
+  border-color: rgba(139,92,246,0.4);
+}
+
+.mic-btn.listening {
+  background: rgba(244,63,94,0.15);
+  border-color: rgba(244,63,94,0.5);
+  animation: micPulse 1s ease-in-out infinite;
+}
+
+@keyframes micPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(244,63,94,0.4); }
+  50%       { box-shadow: 0 0 0 8px rgba(244,63,94,0); }
+}
+
+/* ─── Ovoz gapirmoqda holati ────────────────────────── */
+.pulse-dot.speaking {
+  background: #f59e0b;
+  animation: speakPulse 0.8s ease-in-out infinite;
+}
+
+@keyframes speakPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%       { transform: scale(1.4); opacity: 0.6; }
+}
+
+/* ─── Quiz taklif tugmasi (xabar ichida) ────────────── */
+.quiz-offer-btn {
+  display: block;
+  margin-top: 0.6rem;
+  padding: 0.5rem 1rem;
+  background: linear-gradient(135deg, rgba(124,58,237,0.3), rgba(79,70,229,0.3));
+  border: 1px solid rgba(124,58,237,0.5);
+  border-radius: 8px;
+  color: #a78bfa;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+  width: 100%;
+  text-align: center;
+}
+
+.quiz-offer-btn:hover {
+  background: linear-gradient(135deg, rgba(124,58,237,0.5), rgba(79,70,229,0.5));
+  color: #c4b5fd;
+}
+
+/* ─── Foydalanuvchi foto avatari ─────────────────────── */
+.user-photo-avatar {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
 /* ─── Responsive ───────────────────────────────────── */
 @media (max-width: 768px) {
   .lesson-facts { grid-template-columns: 1fr; }
   .message-bubble-group { max-width: 88%; }
+  .topics-grid { grid-template-columns: repeat(2, 1fr); }
 }
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+

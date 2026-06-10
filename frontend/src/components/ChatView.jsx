@@ -1,117 +1,210 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { gsap } from 'gsap';
 import { v4 as uuidv4 } from 'uuid';
+import QuizModal from './QuizModal';
 import './ChatView.css';
 
-const API_URL = '/api/chat';
-
-// Dars ma'lumotlari
-const LESSON = {
-  title: 'Quyosh Tizimi',
-  icon:  '🌌',
-  topic: 'Bugungi darsimiz: Quyosh tizimi',
-  facts: [
-    '☀️ Quyosh tizimi 4,6 milliard yil oldin vujudga kelgan',
-    '🪐 Tizimda 8 ta sayyora mavjud',
-    '🌍 Yer Quyoshdan 150 mln km uzoqlikda joylashgan',
-    '💫 Quyosh tizimda 200+ dan ortiq oy mavjud',
-  ],
-  quickQuestions: [
-    'Quyosh tizimida nechta sayyora bor?',
-    'Eng katta sayyora qaysi?',
-    'Yer quyoshdan qancha uzoqda?',
-    'Quyosh nima?',
-    'Mars sayyorasini aytib ber',
-  ],
-};
+const API_CHAT  = '/api/chat';
+const API_LESSON = '/api/lesson';
+const API_TOPICS = '/api/topics';
 
 // Xabar turlari
 const MSG_TYPE = { USER: 'user', AI: 'ai', SYSTEM: 'system' };
 
-// Dastlabki salom xabari
-const WELCOME_MESSAGE = {
+// Default salom xabari
+const makeWelcome = (studentName) => ({
   id:        'welcome',
   type:      MSG_TYPE.AI,
-  text:      `Assalomu alaykum! 👋 Men Ziyo — sizning AI o'qituvchingizman!\n\nBugun biz "${LESSON.title}" mavzusini o'rganamiz. 🌌 Savollaringizni bemalol bering, Barakalla! 🎓`,
+  text:      `Assalomu alaykum${studentName ? ", " + studentName : ""}! 👋 Men Ziyo — sizning AI algebra o'qituvchingizman!\n\nQuyidagi mavzulardan birini tanlang yoki savol bering. 7-sinf algebra bo'yicha har qanday savolingizga javob beraman! 🎓`,
   timestamp: new Date(),
+});
+
+// ─── Text-to-Speech yordamchi ─────────────────────────────────────────────────
+const speak = (text, onEnd) => {
+  if (!('speechSynthesis' in window)) return;
+  window.speechSynthesis.cancel();
+
+  const clean = text.replace(/[🎓📚✅❌⭐🏆💯📐🔢➕½⚖️🔤🟰📈✖️🗺️👋🤖]/g, '').trim();
+  const utt   = new SpeechSynthesisUtterance(clean);
+
+  // O'zbek tili uchun eng mos ovoz
+  const voices = window.speechSynthesis.getVoices();
+  const uzVoice = voices.find(v => v.lang.startsWith('uz'))
+    || voices.find(v => v.lang.startsWith('tr'))
+    || voices.find(v => v.lang.startsWith('ru'))
+    || voices[0];
+
+  if (uzVoice) utt.voice = uzVoice;
+  utt.lang  = uzVoice?.lang || 'uz-UZ';
+  utt.rate  = 0.9;
+  utt.pitch = 1;
+  utt.volume = 1;
+  if (onEnd) utt.onend = onEnd;
+  window.speechSynthesis.speak(utt);
 };
 
-const ChatView = ({ isStudentPresent }) => {
-  const [messages,    setMessages]    = useState([WELCOME_MESSAGE]);
-  const [inputValue,  setInputValue]  = useState('');
-  const [isLoading,   setIsLoading]   = useState(false);
-  const [sessionId]                   = useState(() => uuidv4());
-  const [isTyping,    setIsTyping]    = useState(false);
-  const [showLesson,  setShowLesson]  = useState(true);
-  const [charCount,   setCharCount]   = useState(0);
+const ChatView = ({ isStudentPresent, currentStudent }) => {
+  const [messages,     setMessages]     = useState([makeWelcome(currentStudent?.firstName)]);
+  const [inputValue,   setInputValue]   = useState('');
+  const [isLoading,    setIsLoading]    = useState(false);
+  const [sessionId]                     = useState(() => uuidv4());
+  const [isTyping,     setIsTyping]     = useState(false);
+  const [topics,       setTopics]       = useState([]);
+  const [activeTopic,  setActiveTopic]  = useState(null);
+  const [isSpeaking,   setIsSpeaking]   = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [isListening,  setIsListening]  = useState(false);
+  const [showQuiz,     setShowQuiz]     = useState(false);
+  const [msgCount,     setMsgCount]     = useState(0); // Quiz trigger uchun
+  const [charCount,    setCharCount]    = useState(0);
+  const [showTopics,   setShowTopics]   = useState(true);
 
   const messagesEndRef   = useRef(null);
   const inputRef         = useRef(null);
   const lastAiMsgRef     = useRef(null);
-  const chatContainerRef = useRef(null);
+  const recognitionRef   = useRef(null);
+  const MAX_CHARS        = 300;
+  const QUIZ_AFTER_MSGS  = 8; // Necha xabardan keyin quiz taklif qilinadi
 
-  const MAX_CHARS = 300;
+  // ── Mavzularni yuklash ────────────────────────────────────────────────────────
+  useEffect(() => {
+    fetch(API_TOPICS)
+      .then(r => r.json())
+      .then(d => { if (d.success) setTopics(d.topics); })
+      .catch(() => {});
+  }, []);
 
-  // ── Xabarlar oxiriga o'tish ─────────────────────────────────────────────────
+  // ── O'quvchi o'zgarganda salom xabarini yangilash ────────────────────────────
+  useEffect(() => {
+    setMessages([makeWelcome(currentStudent?.firstName)]);
+    setActiveTopic(null);
+    setMsgCount(0);
+  }, [currentStudent?.id]);
+
+  // ── Xabarlar oxiriga o'tish ───────────────────────────────────────────────────
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, []);
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages, scrollToBottom]);
+  useEffect(() => { scrollToBottom(); }, [messages, scrollToBottom]);
 
-  // ── GSAP animatsiyasi - yangi AI xabari ─────────────────────────────────────
+  // ── GSAP animatsiyasi ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (lastAiMsgRef.current) {
-      gsap.fromTo(
-        lastAiMsgRef.current,
+      gsap.fromTo(lastAiMsgRef.current,
         { opacity: 0, y: 20, scale: 0.96 },
-        {
-          opacity:  1,
-          y:        0,
-          scale:    1,
-          duration: 0.55,
-          ease:     'back.out(1.4)',
-        }
+        { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: 'back.out(1.4)' }
       );
     }
   }, [messages]);
 
-  // ── O'quvchi yo'q bo'lganda xabar ───────────────────────────────────────────
-  useEffect(() => {
-    if (!isStudentPresent && messages.length > 1) {
-      // Kamera tomonidan trigger bo'lganda
-    }
-  }, [isStudentPresent]);
+  // ── SpeechRecognition (mikrofon) ─────────────────────────────────────────────
+  const startListening = useCallback(() => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return;
 
-  // ── Input o'zgarganda ────────────────────────────────────────────────────────
-  const handleInputChange = (e) => {
-    const val = e.target.value;
-    if (val.length <= MAX_CHARS) {
-      setInputValue(val);
-      setCharCount(val.length);
+    if (recognitionRef.current) {
+      recognitionRef.current.abort();
     }
-  };
 
-  // ── Xabar yuborish ───────────────────────────────────────────────────────────
+    const recognition = new SR();
+    recognitionRef.current = recognition;
+    recognition.lang = 'uz-UZ';
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart  = () => setIsListening(true);
+    recognition.onend    = () => setIsListening(false);
+    recognition.onerror  = () => setIsListening(false);
+
+    recognition.onresult = (e) => {
+      const transcript = Array.from(e.results)
+        .map(r => r[0].transcript)
+        .join('');
+      setInputValue(transcript);
+      setCharCount(transcript.length);
+    };
+
+    recognition.start();
+  }, []);
+
+  const stopListening = useCallback(() => {
+    recognitionRef.current?.stop();
+    setIsListening(false);
+  }, []);
+
+  // ── Mavzu tanlash — dars boshlash ────────────────────────────────────────────
+  const handleTopicSelect = useCallback(async (topic) => {
+    setActiveTopic(topic);
+    setShowTopics(false);
+    setIsLoading(true);
+    setIsTyping(true);
+    setMsgCount(0);
+
+    const sysMsg = {
+      id:        uuidv4(),
+      type:      MSG_TYPE.SYSTEM,
+      text:      `📚 "${topic.title}" mavzusi boshlandi`,
+      timestamp: new Date(),
+    };
+    setMessages(prev => [...prev, sysMsg]);
+
+    try {
+      const res  = await fetch(API_LESSON, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          topic:       topic.title,
+          studentName: currentStudent?.firstName,
+          sessionId,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+
+      setIsTyping(false);
+      const aiMsg = {
+        id:        uuidv4(),
+        type:      MSG_TYPE.AI,
+        text:      data.response,
+        timestamp: new Date(),
+        isNew:     true,
+      };
+      setMessages(prev => [...prev, aiMsg]);
+      setMsgCount(1);
+
+      if (voiceEnabled) {
+        setIsSpeaking(true);
+        speak(data.response, () => setIsSpeaking(false));
+      }
+    } catch (err) {
+      setIsTyping(false);
+      setMessages(prev => [...prev, {
+        id:        uuidv4(),
+        type:      MSG_TYPE.SYSTEM,
+        text:      `❌ Darsni boshlab bo'lmadi: ${err.message}`,
+        timestamp: new Date(),
+      }]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [currentStudent, sessionId, voiceEnabled]);
+
+  // ── Xabar yuborish ────────────────────────────────────────────────────────────
   const sendMessage = useCallback(async (text = inputValue) => {
     const trimmed = text.trim();
     if (!trimmed || isLoading) return;
 
-    // O'quvchi yo'qligini tekshirish
     if (!isStudentPresent) {
-      const warnMsg = {
+      setMessages(prev => [...prev, {
         id:        uuidv4(),
         type:      MSG_TYPE.SYSTEM,
-        text:      '📷 Kamera orqali o\'quvchi aniqlanmadi. Iltimos, kamera oldiga o\'tiring!',
+        text:      '📷 Kamera orqali o\'quvchi aniqlanmadi. Iltimos, kamera oldiga o\'ting!',
         timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, warnMsg]);
+      }]);
       return;
     }
 
-    // Foydalanuvchi xabarini qo'shish
     const userMsg = {
       id:        uuidv4(),
       type:      MSG_TYPE.USER,
@@ -125,25 +218,20 @@ const ChatView = ({ isStudentPresent }) => {
     setIsTyping(true);
 
     try {
-      const res = await fetch(API_URL, {
+      const res  = await fetch(API_CHAT, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
-          message:       trimmed,
+          message:     trimmed,
           sessionId,
-          lessonContext: LESSON.title,
+          topic:       activeTopic?.title || '7-sinf algebra',
+          studentName: currentStudent?.firstName,
         }),
       });
-
       const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Server xatosi');
 
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Server xatosi');
-      }
-
-      // Simulatsiya qilingan yozish effekti
       setIsTyping(false);
-
       const aiMsg = {
         id:        uuidv4(),
         type:      MSG_TYPE.AI,
@@ -153,109 +241,154 @@ const ChatView = ({ isStudentPresent }) => {
       };
       setMessages(prev => [...prev, aiMsg]);
 
+      const newCount = msgCount + 1;
+      setMsgCount(newCount);
+
+      if (voiceEnabled) {
+        setIsSpeaking(true);
+        speak(data.response, () => setIsSpeaking(false));
+      }
+
+      // Quiz taklif qilish (8 xabardan keyin)
+      if (newCount >= QUIZ_AFTER_MSGS && activeTopic) {
+        setTimeout(() => {
+          setMessages(prev => [...prev, {
+            id:        uuidv4(),
+            type:      MSG_TYPE.SYSTEM,
+            text:      `🎯 Ajoyib! Dars yaxshi ketmoqda. "${activeTopic.title}" mavzusidan test topshirishni xohlaysizmi?`,
+            timestamp: new Date(),
+            showQuizBtn: true,
+          }]);
+        }, 1500);
+        setMsgCount(0);
+      }
+
     } catch (err) {
       setIsTyping(false);
-      const errMsg = {
+      setMessages(prev => [...prev, {
         id:        uuidv4(),
         type:      MSG_TYPE.SYSTEM,
-        text:      `❌ Xato: ${err.message}. Server ishlaётganini tekshiring.`,
+        text:      `❌ Xato: ${err.message}`,
         timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, errMsg]);
+      }]);
     } finally {
       setIsLoading(false);
       setTimeout(() => inputRef.current?.focus(), 100);
     }
-  }, [inputValue, isLoading, isStudentPresent, sessionId]);
+  }, [inputValue, isLoading, isStudentPresent, sessionId, activeTopic, currentStudent, msgCount, voiceEnabled]);
 
-  // ── Enter tugmasi ────────────────────────────────────────────────────────────
+  // ── Enter tugmasi ─────────────────────────────────────────────────────────────
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   };
 
-  // ── Chat tarixini tozalash ───────────────────────────────────────────────────
+  // ── Chat tozalash ─────────────────────────────────────────────────────────────
   const clearChat = async () => {
-    try {
-      await fetch(`/api/chat/session/${sessionId}`, { method: 'DELETE' });
-    } catch (_) {}
-    setMessages([WELCOME_MESSAGE]);
+    try { await fetch(`/api/chat/session/${sessionId}`, { method: 'DELETE' }); } catch (_) {}
+    window.speechSynthesis?.cancel();
+    setMessages([makeWelcome(currentStudent?.firstName)]);
+    setActiveTopic(null);
+    setShowTopics(true);
+    setMsgCount(0);
   };
 
-  // ── Vaqtni formatlash ────────────────────────────────────────────────────────
-  const formatTime = (date) =>
-    date.toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' });
-
-  // ── Tez savol bosish ─────────────────────────────────────────────────────────
-  const handleQuickQuestion = (q) => {
-    setInputValue(q);
-    setCharCount(q.length);
-    inputRef.current?.focus();
-  };
+  const formatTime = (d) => d.toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' });
 
   return (
     <div className="chat-view">
 
-      {/* ─── Dars kartasi ──────────────────────────────────────────────── */}
-      <div className={`lesson-card ${showLesson ? 'expanded' : 'collapsed'}`}>
-        <button
-          className="lesson-toggle"
-          onClick={() => setShowLesson(v => !v)}
-          aria-expanded={showLesson}
-        >
-          <div className="lesson-toggle-left">
-            <span className="lesson-icon">{LESSON.icon}</span>
-            <div>
-              <div className="lesson-label">BUGUNGI DARS</div>
-              <div className="lesson-title">{LESSON.topic}</div>
-            </div>
-          </div>
-          <span className={`toggle-arrow ${showLesson ? 'up' : ''}`}>›</span>
-        </button>
-
-        {showLesson && (
-          <div className="lesson-body">
-            <div className="lesson-facts">
-              {LESSON.facts.map((fact, i) => (
-                <div key={i} className="lesson-fact">
-                  <span>{fact}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ─── Ziyo avatar va sarlavha ───────────────────────────────────── */}
+      {/* ─── Ziyo avatar va sarlavha ─────────────────────────────────────── */}
       <div className="chat-header">
         <div className="ziyo-avatar">
           <div className="avatar-ring">
             <div className="avatar-inner">🤖</div>
           </div>
           <div className="avatar-status">
-            <span className="pulse-dot green"></span>
+            <span className={`pulse-dot ${isSpeaking ? 'speaking' : 'green'}`} />
           </div>
         </div>
         <div className="chat-header-info">
           <h2 className="ziyo-name text-gradient">Ziyo</h2>
-          <p className="ziyo-desc">AI Virtual O'qituvchi • {isStudentPresent ? '🟢 Faol' : '⭕ Kutmoqda'}</p>
+          <p className="ziyo-desc">
+            AI Algebra O'qituvchi •{' '}
+            {isSpeaking ? '🔊 Gapirmoqda' : isStudentPresent ? '🟢 Faol' : '⭕ Kutmoqda'}
+            {activeTopic && <span className="active-topic-badge"> • {activeTopic.emoji} {activeTopic.title}</span>}
+          </p>
         </div>
-        <button
-          className="btn btn-ghost btn-sm clear-btn"
-          onClick={clearChat}
-          title="Chatni tozalash"
-        >
-          🗑️
-        </button>
+        <div className="header-actions">
+          {/* Ovoz tugmasi */}
+          <button
+            className={`icon-btn ${voiceEnabled ? 'active' : ''}`}
+            onClick={() => {
+              if (voiceEnabled) window.speechSynthesis?.cancel();
+              setVoiceEnabled(v => !v);
+              setIsSpeaking(false);
+            }}
+            title={voiceEnabled ? "Ovozni o'chirish" : "Ovozni yoqish"}
+          >
+            {voiceEnabled ? '🔊' : '🔇'}
+          </button>
+          {/* Mavzularni ko'rsatish */}
+          <button
+            className="icon-btn"
+            onClick={() => setShowTopics(v => !v)}
+            title="Mavzular"
+          >
+            📚
+          </button>
+          {/* Test tugmasi */}
+          {activeTopic && (
+            <button
+              className="icon-btn quiz-trigger"
+              onClick={() => setShowQuiz(true)}
+              title="Test topshirish"
+            >
+              📝
+            </button>
+          )}
+          {/* Tozalash */}
+          <button className="icon-btn" onClick={clearChat} title="Chatni tozalash">🗑️</button>
+        </div>
       </div>
 
-      {/* ─── Xabarlar ro'yxati ─────────────────────────────────────────── */}
-      <div className="messages-container" ref={chatContainerRef}>
+      {/* ─── Mavzular paneli ─────────────────────────────────────────────── */}
+      {showTopics && (
+        <div className="topics-panel">
+          <div className="topics-title">📐 7-sinf Algebra mavzulari:</div>
+          <div className="topics-grid">
+            {topics.map(topic => (
+              <button
+                key={topic.id}
+                className={`topic-btn ${activeTopic?.id === topic.id ? 'active' : ''}`}
+                onClick={() => handleTopicSelect(topic)}
+                disabled={isLoading}
+              >
+                <span className="topic-emoji">{topic.emoji}</span>
+                <span className="topic-label">{topic.title}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ─── O'quvchi ma'lumoti ───────────────────────────────────────────── */}
+      {currentStudent && (
+        <div className="student-info-bar">
+          {currentStudent.photo
+            ? <img src={currentStudent.photo} alt="student" className="student-mini-photo" />
+            : <span className="student-mini-avatar">👤</span>
+          }
+          <span className="student-mini-name">
+            {currentStudent.firstName} {currentStudent.lastName}
+          </span>
+          <span className="student-mini-label">— dars olmoqda</span>
+        </div>
+      )}
+
+      {/* ─── Xabarlar ro'yxati ───────────────────────────────────────────── */}
+      <div className="messages-container">
         {messages.map((msg, index) => {
           const isLastAi = msg.type === MSG_TYPE.AI && index === messages.length - 1 && msg.isNew;
-
           return (
             <div
               key={msg.id}
@@ -268,19 +401,32 @@ const ChatView = ({ isStudentPresent }) => {
 
               <div className="message-bubble-group">
                 <div className={`message-bubble ${msg.type}`}>
-                  {/* Matnni paragraf bilan ajratish */}
-                  {msg.text.split('\n').map((line, i) => (
+                  {msg.text.split('\n').map((line, i, arr) => (
                     <React.Fragment key={i}>
                       {line}
-                      {i < msg.text.split('\n').length - 1 && <br />}
+                      {i < arr.length - 1 && <br />}
                     </React.Fragment>
                   ))}
+                  {/* Quiz taklif tugmasi */}
+                  {msg.showQuizBtn && (
+                    <button
+                      className="quiz-offer-btn"
+                      onClick={() => setShowQuiz(true)}
+                    >
+                      📝 Testni boshlash
+                    </button>
+                  )}
                 </div>
                 <div className="message-time">{formatTime(msg.timestamp)}</div>
               </div>
 
               {msg.type === MSG_TYPE.USER && (
-                <div className="msg-avatar user-avatar">👤</div>
+                <div className="msg-avatar user-avatar">
+                  {currentStudent?.photo
+                    ? <img src={currentStudent.photo} alt="u" className="user-photo-avatar" />
+                    : '👤'
+                  }
+                </div>
               )}
             </div>
           );
@@ -292,7 +438,7 @@ const ChatView = ({ isStudentPresent }) => {
             <div className="msg-avatar ai-avatar">🤖</div>
             <div className="message-bubble ai typing-bubble">
               <div className="typing-dots">
-                <span></span><span></span><span></span>
+                <span /><span /><span />
               </div>
               <span className="typing-label">Ziyo yozmoqda...</span>
             </div>
@@ -302,23 +448,7 @@ const ChatView = ({ isStudentPresent }) => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* ─── Tez savollar ─────────────────────────────────────────────── */}
-      <div className="quick-questions">
-        <div className="qq-scroll">
-          {LESSON.quickQuestions.map((q, i) => (
-            <button
-              key={i}
-              className="qq-btn"
-              onClick={() => handleQuickQuestion(q)}
-              disabled={isLoading}
-            >
-              {q}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ─── Kirish maydoni ───────────────────────────────────────────── */}
+      {/* ─── Kirish maydoni ─────────────────────────────────────────────── */}
       <div className="chat-input-area">
         {!isStudentPresent && (
           <div className="presence-warning">
@@ -327,17 +457,33 @@ const ChatView = ({ isStudentPresent }) => {
         )}
 
         <div className="input-row">
+          {/* Mikrofon tugmasi */}
+          <button
+            className={`mic-btn ${isListening ? 'listening' : ''}`}
+            onClick={isListening ? stopListening : startListening}
+            title="Ovozli xabar"
+          >
+            {isListening ? '🔴' : '🎤'}
+          </button>
+
           <div className="input-wrapper">
             <textarea
               ref={inputRef}
               className="chat-textarea"
               placeholder={
                 isStudentPresent
-                  ? "Ziyo'ga savol bering... (Enter — yuborish)"
+                  ? activeTopic
+                    ? `"${activeTopic.title}" bo'yicha savol bering...`
+                    : "Mavzu tanlang yoki savol bering..."
                   : "📷 Avval kamera oldiga o'ting..."
               }
               value={inputValue}
-              onChange={handleInputChange}
+              onChange={e => {
+                if (e.target.value.length <= MAX_CHARS) {
+                  setInputValue(e.target.value);
+                  setCharCount(e.target.value.length);
+                }
+              }}
               onKeyDown={handleKeyDown}
               disabled={isLoading}
               rows={1}
@@ -356,16 +502,34 @@ const ChatView = ({ isStudentPresent }) => {
             aria-label="Yuborish"
           >
             {isLoading ? (
-              <div className="send-spinner"></div>
+              <div className="send-spinner" />
             ) : (
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="22" y1="2" x2="11" y2="13"></line>
-                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                <line x1="22" y1="2" x2="11" y2="13" />
+                <polygon points="22 2 15 22 11 13 2 9 22 2" />
               </svg>
             )}
           </button>
         </div>
       </div>
+
+      {/* ─── Quiz modali ─────────────────────────────────────────────────── */}
+      {showQuiz && activeTopic && (
+        <QuizModal
+          topic={activeTopic.title}
+          studentName={currentStudent?.firstName}
+          onClose={() => setShowQuiz(false)}
+          onComplete={(score, total) => {
+            setShowQuiz(false);
+            setMessages(prev => [...prev, {
+              id:        uuidv4(),
+              type:      MSG_TYPE.SYSTEM,
+              text:      `🏆 Test natijasi: ${score}/${total} (${Math.round(score/total*100)}%). ${score >= total*0.7 ? "Barakalla! Zo'r natija! 🎉" : "Keyingi safar yaxshiroq bo'ladi! 💪"}`,
+              timestamp: new Date(),
+            }]);
+          }}
+        />
+      )}
     </div>
   );
 };
