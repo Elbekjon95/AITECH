@@ -37,7 +37,7 @@ const CameraView = ({ students, onStudentRecognized, onStudentPresenceChange }) 
         await faceapi.nets.tinyFaceDetector.loadFromUri(MODELS_URL);
         setLoadingStep("Yuz aniqlash modeli yuklandi ✓");
 
-        await faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODELS_URL);
+        await faceapi.nets.faceLandmark68Net.loadFromUri(MODELS_URL);
         setLoadingStep("Landmark modeli yuklandi ✓");
 
         await faceapi.nets.faceRecognitionNet.loadFromUri(MODELS_URL);
@@ -70,7 +70,7 @@ const CameraView = ({ students, onStudentRecognized, onStudentPresenceChange }) 
           // Rasm juda katta bo'lsa, tezroq ishlashi uchun moslashtirish
           const detection = await faceapi
             .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.5 }))
-            .withFaceLandmarks(true)
+            .withFaceLandmarks()
             .withFaceDescriptor();
           resolve(detection ? detection.descriptor : null);
         } catch (err) {
@@ -212,7 +212,7 @@ const CameraView = ({ students, onStudentRecognized, onStudentPresenceChange }) 
         // Yuzlarni landmark va descriptorlari bilan aniqlash
         const detections = await faceapi
           .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.4 }))
-          .withFaceLandmarks(true)
+          .withFaceLandmarks()
           .withFaceDescriptors();
 
         // Natijalarni canvas o'lchamiga moslashtirish
@@ -332,7 +332,7 @@ const CameraView = ({ students, onStudentRecognized, onStudentPresenceChange }) 
         }
 
       } catch (err) {
-        // Aniqlash xatosi
+        console.error("Yuz skanerlashda xatolik:", err);
       }
     }, 250); // 4 FPS (tizimni yuklamaslik uchun optimal tezlik)
   }, [isStudentPresent, faceMatcher, students, onStudentPresenceChange, onStudentRecognized]);
