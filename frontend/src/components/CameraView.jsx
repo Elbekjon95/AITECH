@@ -5,7 +5,7 @@ import './CameraView.css';
 // face-api.js modellari CDN orqali yuklanadi
 const MODELS_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/model/';
 
-const CameraView = ({ onStudentPresenceChange }) => {
+const CameraView = ({ students, onStudentRecognized, onStudentPresenceChange }) => {
   const videoRef       = useRef(null);
   const canvasRef      = useRef(null);
   const streamRef      = useRef(null);
@@ -22,6 +22,10 @@ const CameraView = ({ onStudentPresenceChange }) => {
   const [loadingStep, setLoadingStep]     = useState('');
   const [detectionStats, setDetectionStats] = useState({ confidence: 0, fps: 0 });
   const [isCameraOff, setIsCameraOff]     = useState(false);
+  
+  // Yuz solishtiruvchi FaceMatcher va uning holati
+  const [faceMatcher, setFaceMatcher]     = useState(null);
+  const [matcherLoading, setMatcherLoading] = useState(false);
 
   // ── 1. face-api.js modellarini yuklash ──────────────────────────────────────
   useEffect(() => {
@@ -31,13 +35,13 @@ const CameraView = ({ onStudentPresenceChange }) => {
         setLoadingStep("AI modellar yuklanmoqda...");
 
         await faceapi.nets.tinyFaceDetector.loadFromUri(MODELS_URL);
-        setLoadingStep("Yuz tanish modeli yuklandi ✓");
+        setLoadingStep("Yuz aniqlash modeli yuklandi ✓");
 
         await faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODELS_URL);
         setLoadingStep("Landmark modeli yuklandi ✓");
 
-        await faceapi.nets.faceExpressionNet.loadFromUri(MODELS_URL);
-        setLoadingStep("Ifoda modeli yuklandi ✓ | Kamera ishga tushirilmoqda...");
+        await faceapi.nets.faceRecognitionNet.loadFromUri(MODELS_URL);
+        setLoadingStep("Yuz tanish modeli yuklandi ✓");
 
         setModelsLoaded(true);
         setStatus('ready');
@@ -55,14 +59,79 @@ const CameraView = ({ onStudentPresenceChange }) => {
     };
   }, []);
 
-  // ── 2. Modellar yuklangandan so'ng kamerani avtomatik ishga tushirish ───────
+  // ── 2. O'quvchi rasmidan yuz deskriptorini olish (Helper) ──────────────────────
+  const getDescriptorFromPhoto = async (photoBase64) => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = photoBase64;
+      img.onload = async () => {
+        try {
+          // Rasm juda katta bo'lsa, tezroq ishlashi uchun moslashtirish
+          const detection = await faceapi
+            .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.5 }))
+            .withFaceLandmarks(true)
+            .withFaceDescriptor();
+          resolve(detection ? detection.descriptor : null);
+        } catch (err) {
+          console.error("Descriptor extracting xatosi:", err);
+          resolve(null);
+        }
+      };
+      img.onerror = () => resolve(null);
+    });
+  };
+
+  // ── 3. O'quvchilar ro'yxatidan FaceMatcher tayyorlash ──────────────────────────
   useEffect(() => {
-    if (modelsLoaded) {
+    const initMatcher = async () => {
+      if (!modelsLoaded || !students || students.length === 0) {
+        setFaceMatcher(null);
+        return;
+      }
+      try {
+        setMatcherLoading(true);
+        setStatus('loading');
+        setLoadingStep("O'quvchilar rasmlari tahlil qilinmoqda...");
+
+        const labeledDescriptors = [];
+        for (const student of students) {
+          if (!student.photo) continue;
+          const descriptor = await getDescriptorFromPhoto(student.photo);
+          if (descriptor) {
+            labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(student.id, [descriptor]));
+            console.log(`[FaceAPI] Labeled descriptor yaratildi: ${student.firstName}`);
+          }
+        }
+
+        if (labeledDescriptors.length > 0) {
+          // 0.55 moslik darajasi (qanchalik kichik bo'lsa, shunchalik qattiq/aniq solishtiradi)
+          const matcher = new faceapi.FaceMatcher(labeledDescriptors, 0.55);
+          setFaceMatcher(matcher);
+          console.log(`[FaceAPI] FaceMatcher tayyor. Jami taniydigan o'quvchilar: ${labeledDescriptors.length}`);
+        } else {
+          setFaceMatcher(null);
+        }
+        setStatus('ready');
+      } catch (err) {
+        console.error("FaceMatcher yaratib bo'lmadi:", err);
+        setStatus('ready');
+      } finally {
+        setMatcherLoading(false);
+      }
+    };
+
+    initMatcher();
+  }, [modelsLoaded, students]);
+
+  // ── 4. Modellar yuklangandan so'ng kamerani avtomatik ishga tushirish ───────
+  useEffect(() => {
+    if (modelsLoaded && !matcherLoading) {
       startCamera();
     }
-  }, [modelsLoaded]);
+  }, [modelsLoaded, matcherLoading]);
 
-  // ── 3. Kamerani yoqish ───────────────────────────────────────────────────────
+  // ── 5. Kamerani yoqish ───────────────────────────────────────────────────────
   const startCamera = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -92,9 +161,9 @@ const CameraView = ({ onStudentPresenceChange }) => {
         setLoadingStep('Kamerani yoqib bo\'lmadi: ' + err.message);
       }
     }
-  }, []);
+  }, [modelsLoaded, faceMatcher]);
 
-  // ── 4. Kamerani o'chirish ────────────────────────────────────────────────────
+  // ── 6. Kamerani o'chirish ────────────────────────────────────────────────────
   const stopCamera = useCallback(() => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
@@ -121,7 +190,7 @@ const CameraView = ({ onStudentPresenceChange }) => {
     }
   }, [onStudentPresenceChange]);
 
-  // ── 5. Yuz aniqlash tsikli ───────────────────────────────────────────────────
+  // ── 7. Yuz aniqlash va solishtirish tsikli ───────────────────────────────────
   const startDetection = useCallback(() => {
     let frameCount = 0;
     let lastTime = Date.now();
@@ -140,41 +209,67 @@ const CameraView = ({ onStudentPresenceChange }) => {
         };
         faceapi.matchDimensions(canvas, displaySize);
 
-        // Yuzlarni aniqlash (landmark + ifoda bilan)
+        // Yuzlarni landmark va descriptorlari bilan aniqlash
         const detections = await faceapi
           .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.4 }))
           .withFaceLandmarks(true)
-          .withFaceExpressions();
+          .withFaceDescriptors();
 
         // Natijalarni canvas o'lchamiga moslashtirish
         const resized = faceapi.resizeResults(detections, displaySize);
 
-        // Canvasni tozalash va chizish
+        // Canvasni tozalash
         const ctx = canvas.getContext('2d');
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+        let recognizedAnyStudent = null;
+
         if (resized.length > 0) {
-          // Yuz ramkalarini chizish
           resized.forEach(det => {
             const { x, y, width, height } = det.detection.box;
             const confidence = det.detection.score;
+            const descriptor = det.descriptor;
 
-            // Gradient ramka
+            let label = "Noma'lum o'quvchi";
+            let isRecognized = false;
+
+            // FaceMatcher orqali tanish
+            if (faceMatcher) {
+              const bestMatch = faceMatcher.findBestMatch(descriptor);
+              if (bestMatch.label !== 'unknown') {
+                const found = students.find(s => s.id === bestMatch.label);
+                if (found) {
+                  label = `${found.firstName} ${found.lastName}`;
+                  isRecognized = true;
+                  recognizedAnyStudent = found;
+                }
+              }
+            }
+
+            // Gradient ramka chizish
             const gradient = ctx.createLinearGradient(x, y, x + width, y + height);
-            gradient.addColorStop(0, '#3b82f6');
-            gradient.addColorStop(0.5, '#8b5cf6');
-            gradient.addColorStop(1, '#06b6d4');
+            if (isRecognized) {
+              // Yashil rang (tanilsa)
+              gradient.addColorStop(0, '#10b981');
+              gradient.addColorStop(0.5, '#059669');
+              gradient.addColorStop(1, '#06b6d4');
+            } else {
+              // Sariq rang (yuz bor, lekin bazada yo'q yoki tanilmadi)
+              gradient.addColorStop(0, '#f59e0b');
+              gradient.addColorStop(0.5, '#d97706');
+              gradient.addColorStop(1, '#f59e0b');
+            }
 
             ctx.strokeStyle = gradient;
             ctx.lineWidth = 2.5;
-            ctx.shadowColor = '#3b82f6';
+            ctx.shadowColor = isRecognized ? '#10b981' : '#f59e0b';
             ctx.shadowBlur = 12;
             ctx.strokeRect(x, y, width, height);
             ctx.shadowBlur = 0;
 
             // Burchak belgilar
             const cornerLen = 18;
-            ctx.strokeStyle = '#60a5fa';
+            ctx.strokeStyle = isRecognized ? '#34d399' : '#fbbf24';
             ctx.lineWidth = 3;
             [[x, y], [x + width, y], [x, y + height], [x + width, y + height]].forEach(([cx, cy], i) => {
               ctx.beginPath();
@@ -186,20 +281,21 @@ const CameraView = ({ onStudentPresenceChange }) => {
               ctx.stroke();
             });
 
-            // Ishonch ko'rsatkichi
-            ctx.fillStyle = 'rgba(59, 130, 246, 0.85)';
-            ctx.roundRect?.(x, y - 26, 100, 22, 4);
+            // Tizimdagi nomi va ishonch ko'rsatkichi
+            ctx.fillStyle = isRecognized ? 'rgba(16, 185, 129, 0.85)' : 'rgba(245, 158, 11, 0.85)';
+            const labelWidth = Math.max(120, label.length * 7.5 + 20);
+            ctx.roundRect?.(x, y - 26, labelWidth, 22, 4);
             ctx.fill();
             ctx.fillStyle = 'white';
             ctx.font = 'bold 11px Inter, sans-serif';
-            ctx.fillText(`${Math.round(confidence * 100)}%`, x + 6, y - 10);
+            ctx.fillText(isRecognized ? `🎓 ${label}` : `👁️ ${label}`, x + 6, y - 10);
           });
 
-          // Landmark nuqtalarini chizish
+          // Landmarklarni chizish
           faceapi.draw.drawFaceLandmarks(canvas, resized);
         }
 
-        // FPS hisoblash
+        // FPS va hisoblash statislari
         frameCount++;
         const now = Date.now();
         if (now - lastTime >= 1000) {
@@ -213,7 +309,7 @@ const CameraView = ({ onStudentPresenceChange }) => {
           lastTime = now;
         }
 
-        // O'quvchi holati
+        // O'quvchi aniqlanganligini qayd etish
         const detected = resized.length > 0;
         setFaceCount(resized.length);
 
@@ -222,16 +318,26 @@ const CameraView = ({ onStudentPresenceChange }) => {
           onStudentPresenceChange?.(detected);
 
           if (detected) {
-            triggerAlert("✅ O'quvchi aniqlandi. Darsni boshlaymiz! 🎓");
+            if (recognizedAnyStudent) {
+              triggerAlert(`✅ Tanildi: ${recognizedAnyStudent.firstName} ${recognizedAnyStudent.lastName}! 🎓`);
+            } else {
+              triggerAlert("👁️ Yuz aniqlandi. Tanishga urinilmoqda...");
+            }
           }
         }
-      } catch (err) {
-        // Aniqlash xatosi — davom etadi
-      }
-    }, 200); // 5 FPS aniqlash
-  }, [isStudentPresent, onStudentPresenceChange]);
 
-  // ── 6. Alert ko'rsatish ──────────────────────────────────────────────────────
+        // Agar o'quvchi haqiqiy tanilgan bo'lsa va callback berilgan bo'lsa
+        if (recognizedAnyStudent) {
+          onStudentRecognized?.(recognizedAnyStudent);
+        }
+
+      } catch (err) {
+        // Aniqlash xatosi
+      }
+    }, 250); // 4 FPS (tizimni yuklamaslik uchun optimal tezlik)
+  }, [isStudentPresent, faceMatcher, students, onStudentPresenceChange, onStudentRecognized]);
+
+  // ── 8. Alert ko'rsatish ──────────────────────────────────────────────────────
   const triggerAlert = (msg) => {
     setAlertMessage(msg);
     setShowAlert(true);
@@ -240,7 +346,7 @@ const CameraView = ({ onStudentPresenceChange }) => {
     alertTimeRef.current = setTimeout(() => setShowAlert(false), 4000);
   };
 
-  // ── 7. Kamerani yoqish/o'chirish ─────────────────────────────────────────────
+  // ── 9. Kamerani yoqish/o'chirish ─────────────────────────────────────────────
   const handleToggleCamera = () => {
     if (cameraActive) {
       stopCamera();
@@ -267,7 +373,7 @@ const CameraView = ({ onStudentPresenceChange }) => {
         <div className="camera-badges">
           {isStudentPresent && (
             <span className="badge badge-success">
-              👤 {faceCount} O'quvchi
+              👤 {faceCount} Yuz
             </span>
           )}
           {status === 'detecting' && (
@@ -363,7 +469,7 @@ const CameraView = ({ onStudentPresenceChange }) => {
       <div className="camera-status-bar">
         <div className="status-info">
           <div className={`presence-indicator ${isStudentPresent ? 'present' : 'absent'}`}>
-            <span>{isStudentPresent ? '✅ Hozir darsdaman' : '⭕ Kutilmoqda...'}</span>
+            <span>{isStudentPresent ? '✅ O\'quvchi aniqlandi' : '⭕ Skaner kutilmoqda...'}</span>
           </div>
         </div>
 

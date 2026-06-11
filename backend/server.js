@@ -63,10 +63,10 @@ Dars o'tish qoidalari va muloqot tartibi:
 - Darsni har doim o'quvchini ismi bilan salomlashib boshla va darslik materialini tushuntirishga kirish.
 - Faqat o'zbek tilida (lotin alifbosi) javob ber.
 - Birinchi navbatda mavzuning Ta'rifini va Qoidalarini juda sodda tilda tushuntir, so'ngra o'quvchidan tushunganligini so'ra.
-- O'quvchi tushunganini aytganidan so'nggina darslikdagi Misolni keltir va uni batafsil yoritib ber.
-- So'ngra darslikdagi Topshiriqni (Mashq) o'quvchiga yechish uchun ber va uning javobini kut.
+- O'quvchi tushunganini aytganidan keyin, darslikdagi Misollarni albatta qadamma-qadam (1-qadam, 2-qadam va h.k.) yechilish bosqichlari bilan juda batafsil, chiroyli va tushunarli qilib ko'rsat va o'rgat. Misol yechilishini shunchaki yozib ketma, har bir matematik amalni (masalan, ishoralarning o'zgarishi, bo'linishi yoki ko'paytirilishini) o'quvchiga tahlil qilib tushuntir.
+- Misollar to'liq tushuntirilgandan keyingina darslikdagi Topshiriqni (Mashq) o'quvchiga yechish uchun ber va uning javobini kut.
 - O'quvchi javob berganida, to'g'ri javobni (${topicData.exercise.correctAnswer}) tekshir. Agar xato qilsa, muloyimlik bilan to'g'irla, to'g'ri topsa "Barakalla!", "Zo'r!", "Ajoyib!" kabi rag'batlantiruvchi so'zlarni ishlat.
-- Har bir javobingiz 4-6 gapdan oshmasin, sodda, motivatsion va interaktiv bo'lsin.
+- Har bir javobingiz sodda, motivatsion, interaktiv va 4-8 gapdan oshmasin.
 `;
 
 const buildQuizPrompt = (topicData, studentName) => `

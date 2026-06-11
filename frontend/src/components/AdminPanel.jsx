@@ -43,6 +43,19 @@ const AdminPanel = ({ onClose, onStudentSelect, currentStudent, onStudentPresenc
     }
   }, [currentStudent, onStudentPresenceChange]);
 
+  // Avtomatik yuz mosligi aniqlanganda chaqiriladi
+  const handleStudentRecognized = useCallback((recognizedStudent) => {
+    if (currentStudent?.id === recognizedStudent.id) return;
+    
+    // Tizimda o'quvchini tanlash
+    onStudentSelect(recognizedStudent);
+    
+    // "Tanildi" bannerini ko'rsatish
+    setJustRecognized(true);
+    if (recognizedTimerRef.current) clearTimeout(recognizedTimerRef.current);
+    recognizedTimerRef.current = setTimeout(() => setJustRecognized(false), 4000);
+  }, [currentStudent, onStudentSelect]);
+
   useEffect(() => {
     return () => { if (recognizedTimerRef.current) clearTimeout(recognizedTimerRef.current); };
   }, []);
@@ -174,7 +187,11 @@ const AdminPanel = ({ onClose, onStudentSelect, currentStudent, onStudentPresenc
 
             {/* Kamera bloki */}
             <div className="camera-wrapper">
-              <CameraView onStudentPresenceChange={handlePresenceChange} />
+              <CameraView 
+                students={students} 
+                onStudentRecognized={handleStudentRecognized} 
+                onStudentPresenceChange={handlePresenceChange} 
+              />
             </div>
 
             {/* O'quvchi ma'lumoti + kamera holati */}
