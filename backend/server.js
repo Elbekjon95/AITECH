@@ -27,7 +27,7 @@ mongoose.connect(process.env.MONGODB_URI || "mongodb://localhost:27017/ziyo_ai_s
 
 // ─── Gemini AI Setup ──────────────────────────────────────────────────────────
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const MODEL_NAME = "gemini-1.5-flash";
+const MODEL_NAME = "gemini-2.5-flash";
 
 const getModel = (systemInstruction, maxTokens = 512) => {
   return genAI.getGenerativeModel({
