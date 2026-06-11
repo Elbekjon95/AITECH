@@ -42,32 +42,91 @@ const getModel = (systemInstruction, maxTokens = 512) => {
   });
 };
 
+// ─── WAV Header qo'shish funksiyasi (Raw PCM ni WAV ga o'tkazish) ─────────────
+function addWavHeader(pcmBase64, sampleRate = 24000) {
+  const pcmBuffer = Buffer.from(pcmBase64, 'base64');
+  const numChannels = 1; // Mono
+  const bitsPerSample = 16;
+  const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
+  const blockAlign = (numChannels * bitsPerSample) / 8;
+  const dataSize = pcmBuffer.length;
+  const chunkSize = 36 + dataSize;
+
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0);
+  header.writeUInt32LE(chunkSize, 4);
+  header.write('WAVE', 8);
+  header.write('fmt ', 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(numChannels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(bitsPerSample, 34);
+  header.write('data', 36);
+  header.writeUInt32LE(dataSize, 40);
+
+  return Buffer.concat([header, pcmBuffer]).toString('base64');
+}
+
 // ─── Ziyo o'qituvchi system prompti ──────────────────────────────────────────
 const buildLessonPrompt = (studentName, topicTitle, topicData) => `
-Sen 7-sinf algebra o'qituvchisi "Ziyo"san. O'zbek tilida (lotin alifbosida) dars ber.
-O'quvchi ismi: ${studentName || "aziz o'quvchi"}.
-Bugungi mavzu: "${topicTitle}".
+Sen 7-sinf algebra o'qituvchisi "Ziyo"san.
+O'quvchi ismi: ${studentName || "o'quvchi"}.
+Faqat O'ZBEK TILIDA (lotin alifbosi) javob ber.
 
-Dars davomida o'quvchiga quyidagi rasmiy darslik materialidan foydalanib bilim ber:
----
-DARSLIK KONTEKSTI:
-1. Ta'rif: ${topicData.definition}
-2. Asosiy Qoidalar:
-${topicData.rules.map((r, i) => `   ${i+1}) ${r}`).join('\n')}
-3. Misollar:
-${topicData.examples.map((ex, i) => `   * ${ex.step}: ${ex.expression} -> Izoh: ${ex.explanation}`).join('\n')}
-4. Topshiriq (Mashq): ${topicData.exercise.question}
----
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DARSLIK MATERIALI: "${topicTitle}"
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TA'RIF:
+${topicData.definition}
 
-Dars o'tish qoidalari va muloqot tartibi:
-- Darsni har doim o'quvchini ismi bilan salomlashib boshla va darslik materialini tushuntirishga kirish.
-- Faqat o'zbek tilida (lotin alifbosi) javob ber.
-- Birinchi navbatda mavzuning Ta'rifini va Qoidalarini juda sodda tilda tushuntir, so'ngra o'quvchidan tushunganligini so'ra.
-- O'quvchi tushunganini aytganidan keyin, darslikdagi Misollarni albatta qadamma-qadam (1-qadam, 2-qadam va h.k.) yechilish bosqichlari bilan juda batafsil, chiroyli va tushunarli qilib ko'rsat va o'rgat. Misol yechilishini shunchaki yozib ketma, har bir matematik amalni (masalan, ishoralarning o'zgarishi, bo'linishi yoki ko'paytirilishini) o'quvchiga tahlil qilib tushuntir.
-- Misollar to'liq tushuntirilgandan keyingina darslikdagi Topshiriqni (Mashq) o'quvchiga yechish uchun ber va uning javobini kut.
-- O'quvchi javob berganida, to'g'ri javobni (${topicData.exercise.correctAnswer}) tekshir. Agar xato qilsa, muloyimlik bilan to'g'irla, to'g'ri topsa "Barakalla!", "Zo'r!", "Ajoyib!" kabi rag'batlantiruvchi so'zlarni ishlat.
-- Har bir javobingiz sodda, motivatsion, interaktiv va 4-8 gapdan oshmasin.
+QOIDALAR:
+${topicData.rules.map((r, i) => `${i + 1}) ${r}`).join('\n')}
+
+MISOLLAR (qadam-qadam):
+${topicData.examples.map((ex, i) =>
+  `[Misol ${i + 1}] ${ex.step}\n  ${ex.expression}\n  → ${ex.explanation}`
+).join('\n\n')}
+
+YAKUNIY MASHQ:
+Savol: ${topicData.exercise.question}
+Javob: ${topicData.exercise.correctAnswer}
+Maslahat: ${topicData.exercise.hint}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+QATIY QOIDALAR:
+
+▸ KIRISH YO'Q — "Salom, bugun biz...", "Tayyormisan?", "Qiziqarli mavzu..." kabi KIRISH GAPLARI YOZMA!
+  Dars DARHOL ta'rifdan va birinchi misoldan boshlansin.
+
+▸ JAVOBNI YARIMTA QOLDIRMA — Dars va tushuntirishlarni hech qachon o'rtasida uzib qo'yma. Har bir gap va bo'lim to'liq yakunlansin. Token limiti doirasida darsni to'liq tugat.
+
+▸ DARS TO'LIQ BO'LSIN — Dars boshlanganda yuqorida berilgan darslikdagi barcha ta'rif, qoidalar va misollarni ketma-ket batafsil va qadam-qadam tushuntirib ber. Biron bir misol yoki qoidani tashlab ketma.
+
+▸ MATEMATIKA MAZMUNI KO'P BO'LSIN:
+  - Ta'rifni bir gapda berma — uni kengaytir, nima uchunligini tushuntir.
+  - Har bir QOIDANI yozgandan keyin darhol darslikdagi MISOLNI yech:
+      1-qadam: [aniq harakat va sababi]
+      2-qadam: [aniq harakat va sababi]
+      3-qadam: ...
+      Natija: [yakuniy javob] ✓
+  - Misolda har bir SON va ISHORA o'zgarishini tushuntir.
+    ("Manfiy × manfiy = musbat, chunki...", "Maxrajlar tenglashtiriladi, chunki...")
+  - Har bir misoldan keyin xuddi shu qoida bo'yicha qo'shimcha tushuntirish ber.
+
+▸ XATO QILMA — faqat DARSLIK MATERIALIDAGI misollarni ishlat, o'ylab chiqarma.
+
+▸ MASHQ — Barcha qoidalar va misollar tugagandan keyin YAKUNIY MASHQNI ber.
+  O'quvchi javob bersa: to'g'ri → "Barakalla! [nima to'g'ri qilganini 1 gapda ayt]"
+                        xato   → "[nima xato], [to'g'ri yo'nalish] — qaytadan urining."
+
+▸ O'quvchi "ha", "tushunarli", "davom et" desa — TO'XTAMA, keyingi qoida/misol/mavzuga o't.
+▸ Savol bersa — darslik materialiga asoslanib aniq va batafsil javob ber.
 `;
+
+
 
 const buildQuizPrompt = (topicData, studentName) => `
 Sen 7-sinf algebra o'qituvchisisisan. Quyidagi darslik mavzusi materiallari asosida 5 ta test savoli yarat.
@@ -84,16 +143,18 @@ Qoidalar:
 - Faqat bitta to'g'ri javob bo'lsin.
 - Savollar aynan yuqoridagi darslik mavzusi va qoidalari asosida bo'lsin.
 - ${studentName || "o'quvchi"} uchun mos qiyinlikda bo'lsin.
+- Javob variantlarida FAQAT oddiy matn ishlat, hech qanday matematik belgi yoki maxsus belgi ishlatma.
+- Har bir javob varianti 1-2 ta oddiy so'zdan iborat qisqa matn bo'lsin.
 
-MUHIM: Faqat JSON formatida javob ber, boshqa hech narsa yozma:
+MUHIM: Faqat quyidagi ANIQ JSON formatida javob ber, boshqa hech narsa yozma:
 {
   "questions": [
     {
       "id": 1,
       "question": "savol matni",
-      "options": { "A": "...", "B": "...", "C": "...", "D": "..." },
+      "options": { "A": "birinchi variant", "B": "ikkinchi variant", "C": "uchinchi variant", "D": "to'rtinchi variant" },
       "correct": "A",
-      "explanation": "nima uchun to'g'ri ekanligini qisqacha izohlash"
+      "explanation": "qisqa izoh"
     }
   ]
 }
@@ -124,6 +185,33 @@ app.get("/api/students", async (req, res) => {
   try {
     const students = await Student.find().sort({ createdAt: -1 });
     res.json({ success: true, students });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── PUT /api/students/:id — o'quvchi tahrirlash ──────────────────────────────
+app.put("/api/students/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { firstName, lastName, photo } = req.body;
+    if (!firstName || !lastName) {
+      return res.status(400).json({ success: false, error: "Ism va familiya kiritilishi shart." });
+    }
+    const student = await Student.findByIdAndUpdate(
+      id,
+      {
+        firstName: firstName.trim(),
+        lastName:  lastName.trim(),
+        photo:     photo || null,
+      },
+      { new: true }
+    );
+    if (!student) {
+      return res.status(404).json({ success: false, error: "O'quvchi topilmadi." });
+    }
+    console.log(`[Students] O'quvchi tahrirlandi: ${student.firstName} ${student.lastName}`);
+    res.json({ success: true, student });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -167,17 +255,18 @@ app.post("/api/lesson", async (req, res) => {
     await ChatSession.deleteOne({ sessionId: sid });
 
     const systemPrompt = buildLessonPrompt(studentName, topic, topicData);
-    // Dars uchun ko'proq token
-    const model = getModel(systemPrompt, 1200);
+    // Dars uchun ko'proq token (lotin alifbosidagi o'zbek tili uchun 3000 ta token yetarli)
+    const model = getModel(systemPrompt, 3000);
 
     const chat = model.startChat({ history: [] });
 
     // Aniq dars so'rovi
-    const lessonRequest = `"${topic}" mavzusidan dars ber. Quyidagi tartibda:
-1) Ta'rif: mavzuning asosiy tushuntirishi
-2) Misol: oddiy va tushunarli 1-2 ta misol
-3) Mashq: ${studentName || "o'quvchi"} uchun bitta amaliy topshiriq
-Faqat o'zbek tilida, 7-sinf darajasida yoz.`;
+    const lessonRequest = `"${topic}" mavzusini batafsil tushuntirib dars ber. Quyidagi barcha qismlarni darslik materialiga asoslanib to'liq yoz:
+1) Mavzuning batafsil ta'rifi va tushuntirishi.
+2) Darslikdagi barcha qoidalar.
+3) Darslikdagi barcha misollar va ularning qadam-qadam yechilishlari.
+4) Dars oxirida o'quvchi (${studentName || "o'quvchi"}) uchun bitta yakuniy mashq (savol).
+Muhim: Gaplarni va tushuntirishlarni aslo yarimta qoldirma!`;
 
     const result = await chat.sendMessage(lessonRequest);
     const responseText = result.response.text();
@@ -226,7 +315,8 @@ app.post("/api/chat", async (req, res) => {
     }
 
     const systemPrompt = buildLessonPrompt(studentName, topic || "7-sinf algebra", topicData);
-    const model = getModel(systemPrompt, 512);
+    // Dars davomidagi chatda javoblar kesilmasligi uchun token hajmini 2000 ga oshiramiz
+    const model = getModel(systemPrompt, 2000);
     
     // Gemini chatini sessiya tarixi bilan boshlash
     const chat = model.startChat({ history: session.history });
@@ -256,43 +346,133 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
+// ─── POST /api/tts — Text-to-Speech (Gemini TTS) ──────────────────────────────
+app.post("/api/tts", async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text?.trim()) {
+      return res.status(400).json({ success: false, error: "Matn kiritilmadi." });
+    }
+
+    // gemini-2.5-flash-preview-tts modeli faqat audio modalitiesini qabul qiladi
+    const model = genAI.getGenerativeModel({
+      model: "gemini-2.5-flash-preview-tts",
+    });
+
+    console.log(`[TTS] Matn uzunligi: ${text.length} belgi | Audio so'ralmoqda...`);
+    
+    const result = await model.generateContent({
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: text.trim() }]
+        }
+      ],
+      generationConfig: {
+        responseModalities: ["audio"],
+      }
+    });
+
+    const candidates = result.response.candidates;
+    if (candidates && candidates[0]?.content?.parts) {
+      const parts = candidates[0].content.parts;
+      const audioPart = parts.find(p => p.inlineData && p.inlineData.mimeType.startsWith("audio/"));
+      if (audioPart) {
+        // Raw PCM (linear 16-bit 24kHz) ga WAV headerini qo'shish
+        const wavBase64 = addWavHeader(audioPart.inlineData.data, 24000);
+        console.log(`[TTS] Audio tayyor, uzunligi: ${wavBase64.length} bayt base64`);
+        return res.json({
+          success: true,
+          audioData: wavBase64,
+          mimeType: "audio/wav"
+        });
+      }
+    }
+    
+    throw new Error("Gemini modeli audio qaytarmadi.");
+  } catch (err) {
+    console.error("TTS API xatosi:", err.message);
+    res.status(500).json({ success: false, error: "TTS xatosi: " + err.message });
+  }
+});
+
+// ─── JSON xavfsiz tozalash yordamchi funksiyasi ──────────────────────────────
+const safeParseQuizJson = (rawText) => {
+  let text = rawText
+    .replace(/```json\s*/gi, '')
+    .replace(/```\s*/gi, '')
+    .trim();
+
+  // JSON blokini ajratib olish
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('JSON topilmadi');
+  text = jsonMatch[0];
+
+  // Keng tarqalgan Gemini JSON xatolarini tuzatish
+  text = text
+    // Trailing commas: ,} yoki ,]
+    .replace(/,\s*([}\]])/g, '$1')
+    // Newline ichidagi tiqilib qolgan stringlar
+    .replace(/"([^"]*?)\n([^"]*?)"/g, (_, a, b) => `"${a} ${b}"`)
+    // Boshqa control characterlar
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
+
+  return JSON.parse(text);
+};
+
 // ─── POST /api/quiz — test yaratish ──────────────────────────────────────────
 app.post("/api/quiz", async (req, res) => {
   try {
     const { topic, studentName } = req.body;
     if (!topic) return res.status(400).json({ success: false, error: "Mavzu kiritilmadi." });
 
-    // Bazadan mavzu kontentini olish
     const topicData = await Topic.findOne({ title: topic });
     if (!topicData) {
       return res.status(404).json({ success: false, error: "Mavzu kontenti topilmadi." });
     }
 
     const quizPrompt = buildQuizPrompt(topicData, studentName);
+
+    // responseSchema bilan aniq JSON strukturasi talab qilinadi
     const model = genAI.getGenerativeModel({
       model: MODEL_NAME,
       generationConfig: {
-        temperature:     0.5,
-        maxOutputTokens: 2000,
+        temperature:      0.4,
+        maxOutputTokens:  2000,
+        responseMimeType: "application/json",
       },
     });
 
-    const result = await model.generateContent(quizPrompt);
-    let text = result.response.text();
+    let quiz = null;
+    let lastErr = null;
 
-    text = text
-      .replace(/```json\s*/gi, "")
-      .replace(/```\s*/gi, "")
-      .trim();
-
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("JSON topilmadi");
-    text = jsonMatch[0];
-
-    const quiz = JSON.parse(text);
-    if (!quiz.questions || quiz.questions.length === 0) {
-      throw new Error("Savollar topilmadi");
+    // 2 marta urinish
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const result = await model.generateContent(quizPrompt);
+        const rawText = result.response.text();
+        console.log(`[Quiz] attempt ${attempt} raw (${rawText.length} chars)`);
+        quiz = safeParseQuizJson(rawText);
+        if (quiz.questions && quiz.questions.length > 0) break;
+        throw new Error('Savollar topilmadi');
+      } catch (parseErr) {
+        console.warn(`[Quiz] attempt ${attempt} xatosi:`, parseErr.message);
+        lastErr = parseErr;
+      }
     }
+
+    if (!quiz || !quiz.questions || quiz.questions.length === 0) {
+      throw lastErr || new Error('Quiz yaratib bo\'lmadi');
+    }
+
+    // Har bir savolni tozalash (id, correct maydonlari)
+    quiz.questions = quiz.questions.map((q, i) => ({
+      id:          q.id          ?? i + 1,
+      question:    String(q.question   || '').trim(),
+      options:     q.options     || {},
+      correct:     String(q.correct    || 'A').trim().toUpperCase(),
+      explanation: String(q.explanation|| '').trim(),
+    }));
 
     console.log(`[Quiz] Mavzu: "${topic}" | Savollar: ${quiz.questions.length}`);
     res.json({ success: true, quiz, topic });
@@ -333,7 +513,7 @@ app.listen(PORT, () => {
   console.log("╔══════════════════════════════════════════════════╗");
   console.log("║   🎓 Ziyo AI Maktab — 7-sinf Algebra            ║");
   console.log(`║   Server: http://localhost:${PORT}                 ║`);
-  console.log(`║   Model: ${MODEL_NAME}                              ║`);
+  console.log(`║   Model: ${MODEL_NAME.padEnd(38)}║`);
   console.log("║   Database: MongoDB Connected ✅                 ║");
   console.log("║   Status: Ishga tushdi! ✅                       ║");
   console.log("╚══════════════════════════════════════════════════╝");

@@ -686,3 +686,39 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* ─── Karaoke Highlight & Progressive Reveal ────────────────────────────────── */
+.word-span {
+  display: inline-block;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 1rem;
+}
+
+/* Ovoz o'qiyotgan paytda faol bo'lmagan so'zlar (progressive reveal effekti) */
+.message-bubble.ai.speaking-mode .word-span {
+  opacity: 0.15;
+  filter: blur(1px);
+  transform: scale(0.96);
+}
+
+/* O'qib bo'lingan so'zlar */
+.message-bubble.ai.speaking-mode .word-span.read-word {
+  opacity: 0.75;
+  filter: blur(0);
+  color: rgba(255, 255, 255, 0.7);
+  transform: scale(1);
+}
+
+/* Ayni paytda o'qilayotgan so'z (kattalashadi va rangli bo'ladi) */
+.message-bubble.ai.speaking-mode .word-span.active-word {
+  opacity: 1;
+  filter: blur(0);
+  color: #a78bfa;
+  font-weight: 800;
+  text-shadow: 
+    0 0 15px rgba(167, 139, 250, 0.6),
+    0 0 30px rgba(167, 139, 250, 0.3);
+  transform: scale(1.2) translateY(-2px);
+  margin: 0 0.15rem;
+}
+

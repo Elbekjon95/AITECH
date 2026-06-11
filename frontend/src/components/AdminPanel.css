@@ -690,3 +690,189 @@
   border-radius: 3px;
 }
 
+/* ─── Yuz tekshiruv status ──────────────────────────────────────────────────── */
+.photo-upload-area {
+  position: relative;
+}
+
+.face-check-status {
+  position: absolute;
+  bottom: -28px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  pointer-events: none;
+}
+
+.face-check-idle {}
+
+.face-check-checking {
+  color: #fbbf24;
+  background: rgba(245,158,11,0.15);
+  border: 1px solid rgba(245,158,11,0.3);
+}
+
+.face-check-ok {
+  color: #34d399;
+  background: rgba(16,185,129,0.15);
+  border: 1px solid rgba(16,185,129,0.35);
+}
+
+.face-check-no-face {
+  color: #f87171;
+  background: rgba(244,63,94,0.15);
+  border: 1px solid rgba(244,63,94,0.35);
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+.fc-spin { display: inline-block; animation: spin 1s linear infinite; }
+
+/* ─── Form warning ──────────────────────────────────────────────────────────── */
+.form-warn {
+  color: #fbbf24;
+  font-size: 0.8rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(245,158,11,0.1);
+  border-radius: 8px;
+  border: 1px solid rgba(245,158,11,0.25);
+  line-height: 1.5;
+}
+
+/* ─── Analytics Dashboard ───────────────────────────────────────────────────── */
+.analytics-dashboard {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.85rem;
+  margin-bottom: 0.5rem;
+}
+
+.analytics-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  transition: all 0.25s ease;
+}
+
+.analytics-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(139, 92, 246, 0.25);
+  transform: translateY(-2px);
+}
+
+.analytics-card-icon {
+  font-size: 1.5rem;
+  background: rgba(139, 92, 246, 0.12);
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(139, 92, 246, 0.2);
+}
+
+.analytics-card.warning .analytics-card-icon {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.2);
+}
+
+.analytics-card.success .analytics-card-icon {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.2);
+}
+
+.analytics-card-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.analytics-value {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #fff;
+  display: flex;
+  align-items: baseline;
+  gap: 0.2rem;
+}
+
+.analytics-perc {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: #a78bfa;
+}
+
+.analytics-label {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.45);
+  margin-top: 0.15rem;
+}
+
+/* ─── Form Actions & Buttons ────────────────────────────────────────────────── */
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.cancel-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.75);
+  border-radius: 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 0.75rem 1.25rem;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+
+.cancel-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.add-btn.edit-mode {
+  background: linear-gradient(135deg, #10b981, #059669);
+  box-shadow: 0 4px 15px rgba(16, 185, 129, 0.35);
+}
+
+.add-btn.edit-mode:hover:not(:disabled) {
+  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.5);
+  transform: translateY(-1px);
+}
+
+/* ─── Card Edit Icon ───────────────────────────────────────────────────────── */
+.edit-icon-btn {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  font-size: 0.85rem;
+}
+
+.edit-icon-btn:hover {
+  background: rgba(245, 158, 11, 0.25);
+  border-color: rgba(245, 158, 11, 0.5);
+  transform: translateY(-1px);
+}
+

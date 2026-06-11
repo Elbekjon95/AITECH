@@ -27,6 +27,19 @@ const CameraView = ({ students, onStudentRecognized, onStudentPresenceChange }) 
   const [faceMatcher, setFaceMatcher]     = useState(null);
   const [matcherLoading, setMatcherLoading] = useState(false);
 
+  // Closure muammosini hal qilish uchun ref-lar
+  const faceMatcherRef        = useRef(null);
+  const studentsRef           = useRef([]);
+  const lastRecognizedIdRef   = useRef(null);  // so'nggi tanilgan o'quvchi ID
+  const lastRecognizedTimeRef = useRef(0);      // so'nggi tanilgan vaqt (ms)
+  const isStudentPresentRef   = useRef(false);  // presence holati ref orqali
+  const onPresenceChangeRef   = useRef(onStudentPresenceChange);
+  const onRecognizedRef       = useRef(onStudentRecognized);
+
+  // Callback ref-larni har render da yangilab borish
+  useEffect(() => { onPresenceChangeRef.current = onStudentPresenceChange; });
+  useEffect(() => { onRecognizedRef.current = onStudentRecognized; });
+
   // ── 1. face-api.js modellarini yuklash ──────────────────────────────────────
   useEffect(() => {
     const loadModels = async () => {
@@ -60,57 +73,115 @@ const CameraView = ({ students, onStudentRecognized, onStudentPresenceChange }) 
   }, []);
 
   // ── 2. O'quvchi rasmidan yuz deskriptorini olish (Helper) ──────────────────────
-  const getDescriptorFromPhoto = async (photoBase64) => {
+  const getDescriptorFromPhoto = (photoBase64) => {
     return new Promise((resolve) => {
       const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.src = photoBase64;
+      // base64 uchun crossOrigin KERAK EMAS — olib tashlaymiz
       img.onload = async () => {
         try {
-          // Rasm juda katta bo'lsa, tezroq ishlashi uchun moslashtirish
-          const detection = await faceapi
-            .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.5 }))
-            .withFaceLandmarks()
-            .withFaceDescriptor();
+          // Rasmni canvas ga chizib o'lchamini moslashtirish
+          // (juda katta rasm TinyFaceDetector bilan muammo qilishi mumkin)
+          const MAX_SIZE = 640;
+          let { naturalWidth: w, naturalHeight: h } = img;
+          const scale = Math.min(MAX_SIZE / w, MAX_SIZE / h, 1);
+          const cw = Math.round(w * scale);
+          const ch = Math.round(h * scale);
+
+          const offCanvas = document.createElement('canvas');
+          offCanvas.width  = cw;
+          offCanvas.height = ch;
+          const ctx = offCanvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, cw, ch);
+
+          console.log(`[FaceAPI] Rasm o'lchami: ${w}x${h} → canvas: ${cw}x${ch}`);
+
+          // Har xil threshold bilan urinib ko'rish
+          let detection = null;
+          for (const threshold of [0.3, 0.2, 0.15]) {
+            detection = await faceapi
+              .detectSingleFace(offCanvas, new faceapi.TinyFaceDetectorOptions({
+                scoreThreshold: threshold,
+                inputSize: 320,
+              }))
+              .withFaceLandmarks()
+              .withFaceDescriptor();
+            if (detection) {
+              console.log(`[FaceAPI] ✅ Yuz aniqlandi! Score: ${detection.detection.score.toFixed(3)}, threshold: ${threshold}`);
+              break;
+            } else {
+              console.warn(`[FaceAPI] ⚠️ threshold ${threshold} bilan yuz topilmadi`);
+            }
+          }
+
+          if (!detection) {
+            console.error(`[FaceAPI] ❌ Rasmda yuz topilmadi. Iltimos yuzni to'g'ridan va aniq tushgan rasmdan foydalaning.`);
+          }
+
           resolve(detection ? detection.descriptor : null);
         } catch (err) {
-          console.error("Descriptor extracting xatosi:", err);
+          console.error('[FaceAPI] Descriptor extraction xatosi:', err);
           resolve(null);
         }
       };
-      img.onerror = () => resolve(null);
+      img.onerror = (e) => {
+        console.error('[FaceAPI] Rasm yuklanmadi:', e);
+        resolve(null);
+      };
+      img.src = photoBase64;
     });
   };
 
-  // ── 3. O'quvchilar ro'yxatidan FaceMatcher tayyorlash ──────────────────────────
+   // ── 3. O'quvchilar ro'yxatidan FaceMatcher tayyorlash ──────────────────────────
   useEffect(() => {
     const initMatcher = async () => {
       if (!modelsLoaded || !students || students.length === 0) {
         setFaceMatcher(null);
+        faceMatcherRef.current = null;
+        console.log('[FaceAPI] FaceMatcher tozalandi (o\'quvchi yo\'q yoki model yuklanmagan)');
         return;
       }
+
+      const studentsWithPhoto = students.filter(s => s.photo);
+      console.log(`[FaceAPI] Descriptor yaratish boshlandi. Rasmli o'quvchilar: ${studentsWithPhoto.length}/${students.length}`);
+
+      if (studentsWithPhoto.length === 0) {
+        console.warn('[FaceAPI] Birorta o\'quvchida rasm yo\'q! Yuz tanish ishlamaydi.');
+        setFaceMatcher(null);
+        faceMatcherRef.current = null;
+        return;
+      }
+
       try {
         setMatcherLoading(true);
         setStatus('loading');
         setLoadingStep("O'quvchilar rasmlari tahlil qilinmoqda...");
 
         const labeledDescriptors = [];
-        for (const student of students) {
-          if (!student.photo) continue;
+        for (const student of studentsWithPhoto) {
+          console.log(`[FaceAPI] ⏳ ${student.firstName} ${student.lastName} rasmi tahlil qilinmoqda...`);
           const descriptor = await getDescriptorFromPhoto(student.photo);
           if (descriptor) {
-            labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(student.id, [descriptor]));
-            console.log(`[FaceAPI] Labeled descriptor yaratildi: ${student.firstName}`);
+          // LabeledFaceDescriptors label ALBATTA string bo'lishi shart!
+            labeledDescriptors.push(
+              new faceapi.LabeledFaceDescriptors(String(student._id || student.id), [descriptor])
+            );
+            console.log(`[FaceAPI] ✅ ${student.firstName} ${student.lastName}: descriptor tayyor (id: ${String(student._id || student.id)})`);
+
+          } else {
+            console.warn(`[FaceAPI] ❌ ${student.firstName} ${student.lastName}: rasmdan yuz topilmadi! Boshqa rasm yuklang.`);
           }
         }
 
         if (labeledDescriptors.length > 0) {
-          // 0.55 moslik darajasi (qanchalik kichik bo'lsa, shunchalik qattiq/aniq solishtiradi)
-          const matcher = new faceapi.FaceMatcher(labeledDescriptors, 0.55);
+          // 0.6 threshold (kichikroq = qattiqroq, kattaroq = yumshoqroq)
+          const matcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6);
           setFaceMatcher(matcher);
-          console.log(`[FaceAPI] FaceMatcher tayyor. Jami taniydigan o'quvchilar: ${labeledDescriptors.length}`);
+          faceMatcherRef.current = matcher;
+          console.log(`[FaceAPI] 🎉 FaceMatcher tayyor! Taniydigan o'quvchilar: ${labeledDescriptors.length}/${studentsWithPhoto.length}`);
         } else {
           setFaceMatcher(null);
+          faceMatcherRef.current = null;
+          console.error('[FaceAPI] Hech bir rasmdan descriptor olinmadi! Yuz aniq tushgan rasmlardan foydalaning.');
         }
         setStatus('ready');
       } catch (err) {
@@ -123,6 +194,11 @@ const CameraView = ({ students, onStudentRecognized, onStudentPresenceChange }) 
 
     initMatcher();
   }, [modelsLoaded, students]);
+
+  // studentsRef ni yangilab borish
+  useEffect(() => {
+    studentsRef.current = students || [];
+  }, [students]);
 
   // ── 4. Modellar yuklangandan so'ng kamerani avtomatik ishga tushirish ───────
   useEffect(() => {
@@ -161,7 +237,8 @@ const CameraView = ({ students, onStudentRecognized, onStudentPresenceChange }) 
         setLoadingStep('Kamerani yoqib bo\'lmadi: ' + err.message);
       }
     }
-  }, [modelsLoaded, faceMatcher]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── 6. Kamerani o'chirish ────────────────────────────────────────────────────
   const stopCamera = useCallback(() => {
@@ -178,9 +255,14 @@ const CameraView = ({ students, onStudentRecognized, onStudentPresenceChange }) 
     }
     setCameraActive(false);
     setIsCameraOff(true);
+    isStudentPresentRef.current = false;
     setIsStudentPresent(false);
     setFaceCount(0);
-    onStudentPresenceChange?.(false);
+    onPresenceChangeRef.current?.(false);
+    
+    // Seans bo'yicha tanish ref-larini tozalash
+    lastRecognizedIdRef.current = null;
+    lastRecognizedTimeRef.current = 0;
 
     // Canvasni tozalash
     const canvas = canvasRef.current;
@@ -188,7 +270,8 @@ const CameraView = ({ students, onStudentRecognized, onStudentPresenceChange }) 
       const ctx = canvas.getContext('2d');
       ctx.clearRect(0, 0, canvas.width, canvas.height);
     }
-  }, [onStudentPresenceChange]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── 7. Yuz aniqlash va solishtirish tsikli ───────────────────────────────────
   const startDetection = useCallback(() => {
@@ -219,7 +302,7 @@ const CameraView = ({ students, onStudentRecognized, onStudentPresenceChange }) 
         const resized = faceapi.resizeResults(detections, displaySize);
 
         // Canvasni tozalash
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         let recognizedAnyStudent = null;
@@ -233,11 +316,14 @@ const CameraView = ({ students, onStudentRecognized, onStudentPresenceChange }) 
             let label = "Noma'lum o'quvchi";
             let isRecognized = false;
 
-            // FaceMatcher orqali tanish
-            if (faceMatcher) {
-              const bestMatch = faceMatcher.findBestMatch(descriptor);
+            // FaceMatcher orqali tanish — ref orqali eng so'nggi matcherni olish
+            if (faceMatcherRef.current) {
+              const bestMatch = faceMatcherRef.current.findBestMatch(descriptor);
               if (bestMatch.label !== 'unknown') {
-                const found = students.find(s => s.id === bestMatch.label);
+                // String() bilan solishtirish — _id ObjectId bo'lishi mumkin
+                const found = studentsRef.current.find(
+                  s => String(s._id || s.id) === bestMatch.label
+                );
                 if (found) {
                   label = `${found.firstName} ${found.lastName}`;
                   isRecognized = true;
@@ -313,9 +399,10 @@ const CameraView = ({ students, onStudentRecognized, onStudentPresenceChange }) 
         const detected = resized.length > 0;
         setFaceCount(resized.length);
 
-        if (detected !== isStudentPresent) {
+        if (detected !== isStudentPresentRef.current) {
+          isStudentPresentRef.current = detected;
           setIsStudentPresent(detected);
-          onStudentPresenceChange?.(detected);
+          onPresenceChangeRef.current?.(detected);
 
           if (detected) {
             if (recognizedAnyStudent) {
@@ -326,16 +413,29 @@ const CameraView = ({ students, onStudentRecognized, onStudentPresenceChange }) 
           }
         }
 
-        // Agar o'quvchi haqiqiy tanilgan bo'lsa va callback berilgan bo'lsa
+        // Agar o'quvchi haqiqiy tanilgan bo'lsa — faqat bir marta (o'quvchi o'zgarganda) xabar ber
         if (recognizedAnyStudent) {
-          onStudentRecognized?.(recognizedAnyStudent);
+          const studentId = String(recognizedAnyStudent._id || recognizedAnyStudent.id);
+          const diffId   = lastRecognizedIdRef.current !== studentId;
+          if (diffId) {
+            lastRecognizedIdRef.current   = studentId;
+            lastRecognizedTimeRef.current = Date.now();
+            onRecognizedRef.current?.(recognizedAnyStudent);
+
+            // O'quvchi aniqlangandan so'ng kamerani 1 soniya kechikish bilan to'xtatish
+            setTimeout(() => {
+              stopCamera();
+            }, 1000);
+          }
         }
 
       } catch (err) {
         console.error("Yuz skanerlashda xatolik:", err);
       }
     }, 250); // 4 FPS (tizimni yuklamaslik uchun optimal tezlik)
-  }, [isStudentPresent, faceMatcher, students, onStudentPresenceChange, onStudentRecognized]);
+  // faqat mount/unmount paytida yaratiladi — ref orqali eng yangi qiymatlarni oladi
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── 8. Alert ko'rsatish ──────────────────────────────────────────────────────
   const triggerAlert = (msg) => {

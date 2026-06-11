@@ -19,30 +19,6 @@ const makeWelcome = (studentName) => ({
   timestamp: new Date(),
 });
 
-// ─── Text-to-Speech yordamchi ─────────────────────────────────────────────────
-const speak = (text, onEnd) => {
-  if (!('speechSynthesis' in window)) return;
-  window.speechSynthesis.cancel();
-
-  const clean = text.replace(/[🎓📚✅❌⭐🏆💯📐🔢➕½⚖️🔤🟰📈✖️🗺️👋🤖]/g, '').trim();
-  const utt   = new SpeechSynthesisUtterance(clean);
-
-  // O'zbek tili uchun eng mos ovoz
-  const voices = window.speechSynthesis.getVoices();
-  const uzVoice = voices.find(v => v.lang.startsWith('uz'))
-    || voices.find(v => v.lang.startsWith('tr'))
-    || voices.find(v => v.lang.startsWith('ru'))
-    || voices[0];
-
-  if (uzVoice) utt.voice = uzVoice;
-  utt.lang  = uzVoice?.lang || 'uz-UZ';
-  utt.rate  = 0.9;
-  utt.pitch = 1;
-  utt.volume = 1;
-  if (onEnd) utt.onend = onEnd;
-  window.speechSynthesis.speak(utt);
-};
-
 const ChatView = ({ isStudentPresent, currentStudent }) => {
   const [messages,     setMessages]     = useState([makeWelcome(currentStudent?.firstName)]);
   const [inputValue,   setInputValue]   = useState('');
@@ -59,10 +35,21 @@ const ChatView = ({ isStudentPresent, currentStudent }) => {
   const [charCount,    setCharCount]    = useState(0);
   const [showTopics,   setShowTopics]   = useState(true);
 
+  // Karaoke/Highlighting statelari
+  const [speakingMsgId, setSpeakingMsgId] = useState(null);
+  const [currentWordIdx, setCurrentWordIdx] = useState(-1);
+
   const messagesEndRef   = useRef(null);
   const inputRef         = useRef(null);
   const lastAiMsgRef     = useRef(null);
   const recognitionRef   = useRef(null);
+  
+  // Gemini TTS Preload Oqimi Refs
+  const audioRef         = useRef(null);
+  const audioCache       = useRef({}); // index -> base64 audioUrl
+  const currentPlayingIdx = useRef(0);
+  const isPlayingQueue   = useRef(false);
+
   const MAX_CHARS        = 300;
   const QUIZ_AFTER_MSGS  = 8; // Necha xabardan keyin quiz taklif qilinadi
 
@@ -76,10 +63,12 @@ const ChatView = ({ isStudentPresent, currentStudent }) => {
 
   // ── O'quvchi o'zgarganda salom xabarini yangilash ────────────────────────────
   useEffect(() => {
+    stopSpeakingFlow();
+    
     setMessages([makeWelcome(currentStudent?.firstName)]);
     setActiveTopic(null);
     setMsgCount(0);
-  }, [currentStudent?.id]);
+  }, [currentStudent?._id, currentStudent?.id]);
 
   // ── Xabarlar oxiriga o'tish ───────────────────────────────────────────────────
   const scrollToBottom = useCallback(() => {
@@ -97,6 +86,227 @@ const ChatView = ({ isStudentPresent, currentStudent }) => {
       );
     }
   }, [messages]);
+
+  // ── Ovoz ijrosini butunlay to'xtatish ─────────────────────────────────────────
+  const stopSpeakingFlow = () => {
+    window.speechSynthesis?.cancel();
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    audioCache.current = {};
+    currentPlayingIdx.current = 0;
+    isPlayingQueue.current = false;
+    setSpeakingMsgId(null);
+    setCurrentWordIdx(-1);
+    setIsSpeaking(false);
+  };
+
+  // ── Web Speech API Fallback (Gapma-gap fallback) ─────────────────────────────
+  const speakFallbackSentence = useCallback((msgId, cleanText, range, onSentenceEnd) => {
+    if (!('speechSynthesis' in window)) {
+      onSentenceEnd();
+      return;
+    }
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    const voices = window.speechSynthesis.getVoices();
+    const uzVoice = voices.find(v => v.lang.startsWith('uz'))
+      || voices.find(v => v.lang.startsWith('tr'))
+      || voices.find(v => v.lang.startsWith('ru'))
+      || voices[0];
+
+    if (uzVoice) utterance.voice = uzVoice;
+    utterance.lang  = uzVoice?.lang || 'uz-UZ';
+    utterance.rate  = 1.05;
+
+    const sentenceWords = range.words;
+    const wordBoundaries = [];
+    let currentPos = 0;
+    sentenceWords.forEach((word) => {
+      const startIdx = cleanText.indexOf(word, currentPos);
+      if (startIdx !== -1) {
+        wordBoundaries.push({ word, startIdx, endIdx: startIdx + word.length });
+        currentPos = startIdx + word.length;
+      }
+    });
+
+    utterance.onboundary = (event) => {
+      if (event.name === 'word') {
+        const charIndex = event.charIndex;
+        const foundWordIdx = wordBoundaries.findIndex(
+          wb => charIndex >= wb.startIdx && charIndex <= wb.endIdx
+        );
+        if (foundWordIdx !== -1) {
+          const globalIdx = range.startIdx + foundWordIdx;
+          setCurrentWordIdx(globalIdx);
+          const wordEl = document.getElementById(`word-${msgId}-${globalIdx}`);
+          if (wordEl) wordEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }
+    };
+
+    utterance.onend = () => {
+      onSentenceEnd();
+    };
+
+    utterance.onerror = () => {
+      onSentenceEnd();
+    };
+
+    window.speechSynthesis.speak(utterance);
+  }, []);
+
+  // ── Orqa fonda gaplarni yuklash (Preload) ─────────────────────────────────────
+  const preloadSentence = async (idx, sentences) => {
+    if (idx >= sentences.length) return;
+    if (audioCache.current[idx]) return; // allaqachon yuklangan
+
+    try {
+      const text = sentences[idx];
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      const data = await res.json();
+      if (data.success) {
+        audioCache.current[idx] = `data:${data.mimeType};base64,${data.audioData}`;
+        console.log(`[TTS Preload] Gap ${idx} yuklandi.`);
+      }
+    } catch (_) {}
+  };
+
+  // ── Gaplar Oqimini Ijro etish (Play Queue) ────────────────────────────────────
+  const playQueue = useCallback(async (msgId, sentences, sentenceWordRanges, onEnd) => {
+    const idx = currentPlayingIdx.current;
+    
+    if (idx >= sentences.length) {
+      // Dars to'liq tugadi
+      setSpeakingMsgId(null);
+      setCurrentWordIdx(-1);
+      isPlayingQueue.current = false;
+      setIsSpeaking(false);
+      onEnd?.();
+      setTimeout(scrollToBottom, 300);
+      return;
+    }
+
+    setIsSpeaking(true);
+    isPlayingQueue.current = true;
+
+    // Keshda bormi tekshiramiz, bo'lmasa yuklashni kutamiz
+    let audioUrl = audioCache.current[idx];
+    if (!audioUrl) {
+      console.log(`[TTS] Gap ${idx} keshda yo'q, yuklash kutilmoqda...`);
+      await preloadSentence(idx, sentences);
+      audioUrl = audioCache.current[idx];
+    }
+
+    // Fallback: yuklanmasa, tizim ovozi bilan o'qiydi
+    if (!audioUrl) {
+      console.warn(`[TTS] Gap ${idx} yuklash xatosi, fallback ishga tushdi.`);
+      speakFallbackSentence(msgId, sentences[idx], sentenceWordRanges[idx], () => {
+        currentPlayingIdx.current++;
+        playQueue(msgId, sentences, sentenceWordRanges, onEnd);
+      });
+      return;
+    }
+
+    const audio = new Audio(audioUrl);
+    audioRef.current = audio;
+
+    audio.onloadedmetadata = () => {
+      const duration = audio.duration;
+      const range = sentenceWordRanges[idx];
+      const sentenceWords = range.words;
+      const totalChars = sentenceWords.reduce((acc, w) => acc + w.length, 0);
+      let currentOffset = 0;
+
+      const wordTimes = sentenceWords.map(word => {
+        const wordDuration = (word.length / totalChars) * duration;
+        const start = currentOffset;
+        const end = start + wordDuration;
+        currentOffset = end;
+        return { start, end };
+      });
+
+      audio.ontimeupdate = () => {
+        const curTime = audio.currentTime;
+        const activeLocalIdx = wordTimes.findIndex(wt => curTime >= wt.start && curTime <= wt.end);
+        if (activeLocalIdx !== -1) {
+          const globalIdx = range.startIdx + activeLocalIdx;
+          setCurrentWordIdx(globalIdx);
+          const wordEl = document.getElementById(`word-${msgId}-${globalIdx}`);
+          if (wordEl) {
+            wordEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }
+      };
+    };
+
+    audio.onended = () => {
+      audioRef.current = null;
+      currentPlayingIdx.current++;
+      playQueue(msgId, sentences, sentenceWordRanges, onEnd);
+    };
+
+    audio.onerror = () => {
+      audioRef.current = null;
+      currentPlayingIdx.current++;
+      playQueue(msgId, sentences, sentenceWordRanges, onEnd);
+    };
+
+    // Ijro etish va keyingi gaplarni fonda preload qilish
+    await audio.play();
+    preloadSentence(idx + 1, sentences);
+    preloadSentence(idx + 2, sentences);
+  }, [scrollToBottom, speakFallbackSentence]);
+
+  // ── Text-to-Speech (TTS) kirish nuqtasi ──────────────────────────────────────
+  const speak = useCallback(async (msgId, text, onEnd) => {
+    stopSpeakingFlow();
+
+    setSpeakingMsgId(msgId);
+    setCurrentWordIdx(-1);
+
+    // Emoji tozalash
+    const EMOJI_REG = /[🎓📚✅❌⭐🏆💯📐🔢➕½⚖️🔤🟰📈✖️🗺️👋🤖]/g;
+    const clean = text.replace(EMOJI_REG, '').trim();
+
+    // Gaplarni aniqlash (. ! ? yoki yangi qator bo'yicha)
+    const rawParts = clean.split(/(?<=[.!?])\s+|\n+/);
+    const sentences = rawParts.map(p => p.trim()).filter(p => p.length > 0);
+
+    if (sentences.length === 0) {
+      onEnd?.();
+      return;
+    }
+
+    // Har bir gap uchun so'z diapazonini (word ranges) tuzish
+    let globalWordOffset = 0;
+    const sentenceWordRanges = sentences.map(sentence => {
+      const sentenceWords = sentence.split(/\s+/).filter(w => w.length > 0);
+      const startIdx = globalWordOffset;
+      const endIdx = startIdx + sentenceWords.length;
+      globalWordOffset = endIdx;
+      return { words: sentenceWords, startIdx, endIdx };
+    });
+
+    console.log(`[TTS] Dars ${sentences.length} ta gapga bo'lindi. Yuklash boshlandi...`);
+    
+    // Birinchi gapni tez yuklash
+    await preloadSentence(0, sentences);
+
+    // Ikkinchi gapni fonda yuklashni boshlash
+    preloadSentence(1, sentences);
+
+    // Playback boshlash
+    currentPlayingIdx.current = 0;
+    playQueue(msgId, sentences, sentenceWordRanges, onEnd);
+
+  }, [playQueue]);
 
   // ── SpeechRecognition (mikrofon) ─────────────────────────────────────────────
   const startListening = useCallback(() => {
@@ -135,6 +345,8 @@ const ChatView = ({ isStudentPresent, currentStudent }) => {
 
   // ── Mavzu tanlash — dars boshlash ────────────────────────────────────────────
   const handleTopicSelect = useCallback(async (topic) => {
+    stopSpeakingFlow();
+
     setActiveTopic(topic);
     setShowTopics(false);
     setIsLoading(true);
@@ -175,7 +387,7 @@ const ChatView = ({ isStudentPresent, currentStudent }) => {
 
       if (voiceEnabled) {
         setIsSpeaking(true);
-        speak(data.response, () => setIsSpeaking(false));
+        speak(aiMsg.id, data.response, () => setIsSpeaking(false));
       }
     } catch (err) {
       setIsTyping(false);
@@ -188,7 +400,7 @@ const ChatView = ({ isStudentPresent, currentStudent }) => {
     } finally {
       setIsLoading(false);
     }
-  }, [currentStudent, sessionId, voiceEnabled]);
+  }, [currentStudent, sessionId, voiceEnabled, speak]);
 
   // ── Xabar yuborish ────────────────────────────────────────────────────────────
   const sendMessage = useCallback(async (text = inputValue) => {
@@ -204,6 +416,8 @@ const ChatView = ({ isStudentPresent, currentStudent }) => {
       }]);
       return;
     }
+
+    stopSpeakingFlow();
 
     const userMsg = {
       id:        uuidv4(),
@@ -246,7 +460,7 @@ const ChatView = ({ isStudentPresent, currentStudent }) => {
 
       if (voiceEnabled) {
         setIsSpeaking(true);
-        speak(data.response, () => setIsSpeaking(false));
+        speak(aiMsg.id, data.response, () => setIsSpeaking(false));
       }
 
       // Quiz taklif qilish (8 xabardan keyin)
@@ -275,7 +489,7 @@ const ChatView = ({ isStudentPresent, currentStudent }) => {
       setIsLoading(false);
       setTimeout(() => inputRef.current?.focus(), 100);
     }
-  }, [inputValue, isLoading, isStudentPresent, sessionId, activeTopic, currentStudent, msgCount, voiceEnabled]);
+  }, [inputValue, isLoading, isStudentPresent, sessionId, activeTopic, currentStudent, msgCount, voiceEnabled, speak]);
 
   // ── Enter tugmasi ─────────────────────────────────────────────────────────────
   const handleKeyDown = (e) => {
@@ -285,11 +499,73 @@ const ChatView = ({ isStudentPresent, currentStudent }) => {
   // ── Chat tozalash ─────────────────────────────────────────────────────────────
   const clearChat = async () => {
     try { await fetch(`/api/chat/session/${sessionId}`, { method: 'DELETE' }); } catch (_) {}
-    window.speechSynthesis?.cancel();
+    stopSpeakingFlow();
     setMessages([makeWelcome(currentStudent?.firstName)]);
     setActiveTopic(null);
     setShowTopics(true);
     setMsgCount(0);
+  };
+
+  // ── Karaoke Matn Rendereri (So'zma-so'z va gapiruvchi animatsiyasi bilan) ───────
+  const renderMessageText = (msg) => {
+    if (msg.type !== MSG_TYPE.AI) {
+      return msg.text.split('\n').map((line, i, arr) => (
+        <React.Fragment key={i}>
+          {line}
+          {i < arr.length - 1 && <br />}
+        </React.Fragment>
+      ));
+    }
+
+    const EMOJI_REG = /[🎓📚✅❌⭐🏆💯📐🔢➕½⚖️🔤🟰📈✖️🗺️👋🤖]/g;
+    const lines = msg.text.split('\n');
+    let wordGlobalCounter = 0;
+
+    return lines.map((line, lineIdx) => {
+      if (!line.trim()) return <React.Fragment key={lineIdx}><br /></React.Fragment>;
+
+      const lineWords = line.split(/(\s+)/);
+
+      return (
+        <div key={lineIdx} className="message-line" style={{ display: 'inline' }}>
+          {lineWords.map((part, partIdx) => {
+            if (/^\s+$/.test(part)) return part;
+
+            const cleanWord = part.replace(EMOJI_REG, '').replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?"']/g, '').trim();
+
+            let currentCounter = null;
+            if (cleanWord.length > 0) {
+              currentCounter = wordGlobalCounter;
+              wordGlobalCounter++;
+            }
+
+            const isWordActive = speakingMsgId === msg.id && currentCounter !== null && currentWordIdx === currentCounter;
+            const isWordRead = speakingMsgId === msg.id && currentCounter !== null && currentCounter < currentWordIdx;
+
+            let cleanPart = part;
+            let isBold = false;
+            if (part.startsWith('**') && part.endsWith('**')) {
+              cleanPart = part.slice(2, -2);
+              isBold = true;
+            }
+
+            return (
+              <span
+                key={partIdx}
+                id={currentCounter !== null ? `word-${msg.id}-${currentCounter}` : undefined}
+                className={`word-span ${isWordActive ? 'active-word' : ''} ${isWordRead ? 'read-word' : ''}`}
+                style={{
+                  fontWeight: isBold ? 'bold' : 'normal',
+                }}
+              >
+                {cleanPart}
+              </span>
+            );
+          })}
+          {lineIdx < lines.length - 1 && <br />}
+        </div>
+      );
+    });
   };
 
   const formatTime = (d) => d.toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' });
@@ -320,7 +596,9 @@ const ChatView = ({ isStudentPresent, currentStudent }) => {
           <button
             className={`icon-btn ${voiceEnabled ? 'active' : ''}`}
             onClick={() => {
-              if (voiceEnabled) window.speechSynthesis?.cancel();
+              if (voiceEnabled) {
+                stopSpeakingFlow();
+              }
               setVoiceEnabled(v => !v);
               setIsSpeaking(false);
             }}
@@ -356,17 +634,23 @@ const ChatView = ({ isStudentPresent, currentStudent }) => {
         <div className="topics-panel">
           <div className="topics-title">📐 7-sinf Algebra mavzulari:</div>
           <div className="topics-grid">
-            {topics.map(topic => (
-              <button
-                key={topic.id}
-                className={`topic-btn ${activeTopic?.id === topic.id ? 'active' : ''}`}
-                onClick={() => handleTopicSelect(topic)}
-                disabled={isLoading}
-              >
-                <span className="topic-emoji">{topic.emoji}</span>
-                <span className="topic-label">{topic.title}</span>
-              </button>
-            ))}
+            {topics.map(topic => {
+              const topicId = topic._id || topic.topicId || topic.id;
+              const activeId = activeTopic?._id || activeTopic?.topicId || activeTopic?.id;
+              const isActive = activeId && topicId && String(activeId) === String(topicId);
+              
+              return (
+                <button
+                  key={String(topicId)}
+                  className={`topic-btn ${isActive ? 'active' : ''}`}
+                  onClick={() => handleTopicSelect(topic)}
+                  disabled={isLoading}
+                >
+                  <span className="topic-emoji">{topic.emoji}</span>
+                  <span className="topic-label">{topic.title}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
@@ -389,6 +673,8 @@ const ChatView = ({ isStudentPresent, currentStudent }) => {
       <div className="messages-container">
         {messages.map((msg, index) => {
           const isLastAi = msg.type === MSG_TYPE.AI && index === messages.length - 1 && msg.isNew;
+          const isSpeakingMode = speakingMsgId === msg.id && voiceEnabled;
+          
           return (
             <div
               key={msg.id}
@@ -400,13 +686,9 @@ const ChatView = ({ isStudentPresent, currentStudent }) => {
               )}
 
               <div className="message-bubble-group">
-                <div className={`message-bubble ${msg.type}`}>
-                  {msg.text.split('\n').map((line, i, arr) => (
-                    <React.Fragment key={i}>
-                      {line}
-                      {i < arr.length - 1 && <br />}
-                    </React.Fragment>
-                  ))}
+                <div className={`message-bubble ${msg.type} ${isSpeakingMode ? 'speaking-mode' : ''}`}>
+                  {renderMessageText(msg)}
+                  
                   {/* Quiz taklif tugmasi */}
                   {msg.showQuizBtn && (
                     <button

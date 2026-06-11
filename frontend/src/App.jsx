@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import CameraView   from './components/CameraView';
 import ChatView     from './components/ChatView';
 import AdminPanel   from './components/AdminPanel';
@@ -8,8 +8,32 @@ const App = () => {
   const [isStudentPresent, setIsStudentPresent] = useState(false);
   const [serverStatus,     setServerStatus]     = useState('checking');
   const [currentTime,      setCurrentTime]      = useState(new Date());
-  const [currentStudent,   setCurrentStudent]   = useState(null);  // Faol o'quvchi
-  const [showAdmin,        setShowAdmin]         = useState(false); // Admin panel holati
+  const [currentStudent,   setCurrentStudent]   = useState(null);
+  const [showAdmin,        setShowAdmin]         = useState(false);
+  const [students,         setStudents]          = useState([]);
+
+  // ── O'quvchilar ro'yxatini yuklash ─────────────────────────────────────────
+  const loadStudents = useCallback(async () => {
+    try {
+      const res  = await fetch('/api/students');
+      const data = await res.json();
+      if (data.success) {
+        setStudents(prev => {
+          // Faqat o'quvchilar soni yoki ID lari o'zgarganda yangilash
+          const prevIds = prev.map(s => s._id || s.id).join(',');
+          const nextIds = data.students.map(s => s._id || s.id).join(',');
+          return prevIds === nextIds ? prev : data.students;
+        });
+      }
+    } catch (_) {}
+  }, []);
+
+  useEffect(() => {
+    loadStudents();
+    // Har 30 sekundda yangilash — yangi o'quvchi qo'shilsa FaceMatcher yangilanadi
+    const interval = setInterval(loadStudents, 30_000);
+    return () => clearInterval(interval);
+  }, [loadStudents]);
 
   // ── Server holati tekshiruvi ────────────────────────────────────────────────
   useEffect(() => {
@@ -26,7 +50,7 @@ const App = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // ── Soat ────────────────────────────────────────────────────────────────────
+  // ── Soat ─────────────────────────────────────────────────────────────────────
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
@@ -39,6 +63,12 @@ const App = () => {
 
   const formatTime = (date) =>
     date.toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+  // ── O'quvchi Admin paneldan tanlanganda ro'yxatni yangilash ────────────────
+  const handleStudentSelect = useCallback((student) => {
+    setCurrentStudent(student);
+    loadStudents(); // yangi o'quvchi qo'shilgan bo'lishi mumkin
+  }, [loadStudents]);
 
   return (
     <div className="app">
@@ -89,7 +119,7 @@ const App = () => {
                 ? '0 0 0 0 rgba(16,185,129,0.7)'
                 : '0 0 0 0 rgba(245,158,11,0.7)',
             }} />
-            <span>{isStudentPresent ? "O'quvchi darsdа" : 'Kutilmoqda'}</span>
+            <span>{isStudentPresent ? "Darsda" : 'Kutilmoqda'}</span>
           </div>
 
           {/* Server holati */}
@@ -104,7 +134,7 @@ const App = () => {
             </span>
           </div>
 
-          {/* ─── Admin Panel tugmasi ─────────────────────────────────── */}
+          {/* Admin Panel tugmasi */}
           <button
             className="admin-btn"
             onClick={() => setShowAdmin(true)}
@@ -126,15 +156,32 @@ const App = () => {
         </div>
       )}
 
-      {/* ─── Asosiy kontent ──────────────────────────────────────────── */}
-      <main className="app-main">
-        {/* Chat paneli — asosiy bo'lim */}
+      {/* ─── Asosiy kontent: chap — kamera, o'ng — chat ──────────────── */}
+      <main className="app-main app-main--split">
+
+        {/* Chap ustun: Yuz skaneri */}
+        <section className="panel camera-panel glass-card">
+          <CameraView
+            students={students}
+            onStudentPresenceChange={setIsStudentPresent}
+            onStudentRecognized={(student) => {
+              const currentId = currentStudent ? String(currentStudent._id || currentStudent.id || '') : '';
+              const newId = student ? String(student._id || student.id || '') : '';
+              if (currentId !== newId) {
+                setCurrentStudent(student);
+              }
+            }}
+          />
+        </section>
+
+        {/* O'ng ustun: AI chat */}
         <section className="panel chat-panel glass-card">
           <ChatView
             isStudentPresent={isStudentPresent}
             currentStudent={currentStudent}
           />
         </section>
+
       </main>
 
       {/* ─── Footer ──────────────────────────────────────────────────── */}
@@ -149,8 +196,8 @@ const App = () => {
       {/* ─── Admin Panel (modal) ──────────────────────────────────────── */}
       {showAdmin && (
         <AdminPanel
-          onClose={() => setShowAdmin(false)}
-          onStudentSelect={setCurrentStudent}
+          onClose={() => { setShowAdmin(false); loadStudents(); }}
+          onStudentSelect={handleStudentSelect}
           currentStudent={currentStudent}
           onStudentPresenceChange={setIsStudentPresent}
         />

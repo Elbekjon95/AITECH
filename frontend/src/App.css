@@ -261,11 +261,19 @@
   flex: 1;
   display: flex;
   padding: 1.5rem 2rem;
-  max-width: 1200px;
+  max-width: 1400px;
   width: 100%;
   margin: 0 auto;
   position: relative;
   z-index: 1;
+}
+
+/* Ikki ustunli split layout */
+.app-main--split {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: 1.25rem;
+  align-items: start;
 }
 
 .panel {
@@ -274,7 +282,14 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  flex: 1;
+}
+
+/* Kamera paneli */
+.camera-panel {
+  animation: slideInLeft 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: sticky;
+  top: calc(60px + 1.5rem);
+  height: calc(100vh - 140px);
 }
 
 .chat-panel {
@@ -324,11 +339,22 @@
 .separator { opacity: 0.4; }
 
 /* ─── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 1100px) {
+  .app-main--split {
+    grid-template-columns: 320px 1fr;
+  }
+}
+
 @media (max-width: 900px) {
-  .app-main {
+  .app-main, .app-main--split {
     grid-template-columns: 1fr;
-    grid-template-rows: auto auto auto;
     padding: 1rem;
+  }
+
+  .camera-panel {
+    position: static;
+    height: auto;
+    min-height: 320px;
   }
 
   .panel {
